@@ -110,6 +110,10 @@
         b) Tabelle: Sortierung standardmäßig zusätzlich nach Volumen
            möglich (Sortier-Header existieren — prüfen, dass Volumen=
            input+output+reasoning als Sortierschlüssel vorhanden ist)
+           -> ERGÄNZUNG (Nutzer): Modell-Aufschlüsselung bekommt Spalte
+           "Total-Tokens" (input+output+reasoning, ohne cache) mit eigenem
+           Sortier-Header; DEFAULT-Sortierung der Tabelle = Total-Tokens
+           absteigend
         c) Donut-Charts sind bereits Volumen-basiert ("Token-Anteil"):
            prüfen, dass hy3 dort sichtbar ist (nicht in "Andere" versunken;
            ggf. Top-N erhöhen oder Legende zeigt "Andere"-Aufschlüsselung
