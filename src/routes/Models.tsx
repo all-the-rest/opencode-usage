@@ -8,9 +8,13 @@
  *    client-side; on failure we fall back to the DB-provided names.
  *  - Filters (provider / model / family / free) persisted in the URL via
  *    react-router useSearchParams so every combination is shareable/bookmarkable.
+ *  - Global project drill-down: ?project=<basename> scopes the API query
+ *    server-side (getModelBreakdown opts) and shows as a clearable badge.
+ *  - The model filter uses a custom daisyUI dropdown autocomplete instead of
+ *    the native datalist (substring matches, highlighted, max 8 entries).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useSearchParams } from "react-router";
 import {
@@ -51,7 +55,16 @@ type PriceSortKey = "model" | "totalTokens" | "effective" | "theo";
 type PriceSortDir = "asc" | "desc";
 
 export default function Models() {
-  const api = usePoll(getModelBreakdown);
+  const [searchParams] = useSearchParams();
+  const project = searchParams.get("project") ?? "";
+  // Remount (and thus re-fetch) whenever the global project filter changes.
+  return <ModelsView key={project} project={project} />;
+}
+
+function ModelsView({ project }: { project: string }) {
+  const api = usePoll((signal) =>
+    getModelBreakdown(signal, project ? { project } : undefined),
+  );
   const meta = useModelProviders();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -74,13 +87,24 @@ export default function Models() {
   };
 
   const hasFilter =
+    !!project ||
     !!provider ||
     !!model.trim() ||
     !!family ||
     !!manufacturer ||
     free !== "all";
 
-  const resetFilters = () => setSearchParams(new URLSearchParams());
+  // Reset clears the page-local filters but keeps the global ?project= scope.
+  const resetFilters = () =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams();
+        const p = prev.get("project");
+        if (p) next.set("project", p);
+        return next;
+      },
+      { replace: false },
+    );
 
   const filtered = useMemo(() => {
     const m = model.trim().toLowerCase();
@@ -143,6 +167,7 @@ export default function Models() {
         family={family}
         manufacturer={manufacturer}
         free={free}
+        project={project}
         providers={providers}
         families={families}
         manufacturers={manufacturers}
@@ -154,6 +179,7 @@ export default function Models() {
         onFamily={(v) => setParam("family", v)}
         onManufacturer={(v) => setParam("manufacturer", v)}
         onFree={(v) => setParam("free", v === "all" ? "" : v)}
+        onClearProject={() => setParam("project", "")}
         onReset={resetFilters}
       />
 
@@ -225,6 +251,7 @@ function ModelFilters({
   family,
   manufacturer,
   free,
+  project,
   providers,
   families,
   manufacturers,
@@ -236,6 +263,7 @@ function ModelFilters({
   onFamily,
   onManufacturer,
   onFree,
+  onClearProject,
   onReset,
 }: {
   provider: string;
@@ -243,6 +271,7 @@ function ModelFilters({
   family: string;
   manufacturer: string;
   free: FreeFilter;
+  project: string;
   providers: [string, string][];
   families: string[];
   manufacturers: string[];
@@ -254,6 +283,7 @@ function ModelFilters({
   onFamily: (v: string) => void;
   onManufacturer: (v: string) => void;
   onFree: (v: FreeFilter) => void;
+  onClearProject: () => void;
   onReset: () => void;
 }) {
   return (
@@ -282,19 +312,12 @@ function ModelFilters({
             <span className="label-text text-sm opacity-70">
               {t("filterModel")}
             </span>
-            <input
-              type="text"
-              className="input input-bordered input-sm"
-              placeholder={t("filterModelPlaceholder")}
+            <ModelCombobox
               value={model}
-              list="model-id-options"
-              onChange={(e) => onModel(e.target.value)}
+              modelIds={modelIds}
+              onInput={onModel}
+              onSelect={onModel}
             />
-            <datalist id="model-id-options">
-              {modelIds.map((id) => (
-                <option key={id} value={id} />
-              ))}
-            </datalist>
           </label>
 
           <label className="form-control w-auto">
@@ -357,6 +380,12 @@ function ModelFilters({
 
         {hasFilter && (
           <div className="flex flex-wrap gap-2">
+            {project && (
+              <FilterBadge
+                label={`${t("globalProjectFilter")}: ${project}`}
+                onClear={onClearProject}
+              />
+            )}
             {provider && (
               <FilterBadge
                 label={`${t("filterProvider")}: ${providerName(provider)}`}
@@ -403,6 +432,116 @@ function FilterBadge({ label, onClear }: { label: string; onClear: () => void })
         ✕
       </button>
     </span>
+  );
+}
+
+/**
+ * Autocomplete für den Modell-Filter — echtes daisyUI-Dropdown statt nativem
+ * datalist. Öffnet bei Fokus/Eingabe, zeigt max. 8 Substring-Treffer über die
+ * bekannten Modell-IDs (Match hervorgehoben). Schließt bei Auswahl, Escape
+ * oder Klick außerhalb (Blur + kurzer Timer; per onMouseDown+preventDefault
+ * bleibt der Fokus beim Klick auf einen Eintrag trotzdem im Input).
+ */
+function ModelCombobox({
+  value,
+  modelIds,
+  onInput,
+  onSelect,
+}: {
+  value: string;
+  modelIds: string[];
+  onInput: (v: string) => void;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+
+  const q = value.trim().toLowerCase();
+  const options = (q
+    ? modelIds.filter((id) => id.toLowerCase().includes(q))
+    : modelIds
+  ).slice(0, 8);
+
+  const cancelClose = () => {
+    if (closeTimer.current != null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 120);
+  };
+  // Clear a pending close timer on unmount.
+  useEffect(() => cancelClose, []);
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        className="input input-bordered input-sm"
+        placeholder={t("filterModelPlaceholder")}
+        value={value}
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="list"
+        autoComplete="off"
+        onChange={(e) => {
+          onInput(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          cancelClose();
+          setOpen(true);
+        }}
+        onBlur={scheduleClose}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            cancelClose();
+            setOpen(false);
+          }
+        }}
+      />
+      {/* preventDefault on mousedown keeps focus in the input so item clicks
+          never race the blur-close timer. */}
+      {open && options.length > 0 && (
+        <ul
+          className="menu menu-sm absolute left-0 top-full z-50 mt-1 w-max min-w-full max-w-xs overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-lg"
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {options.map((id) => (
+            <li key={id}>
+              <button
+                type="button"
+                onMouseDown={() => {
+                  cancelClose();
+                  onSelect(id);
+                  setOpen(false);
+                }}
+              >
+                {highlightMatch(id, q)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Hebt den (case-insensitiven) Substring-Match in einem Dropdown-Eintrag hervor. */
+function highlightMatch(id: string, q: string) {
+  if (!q) return id;
+  const idx = id.toLowerCase().indexOf(q);
+  if (idx === -1) return id;
+  return (
+    <>
+      {id.slice(0, idx)}
+      <span className="font-bold text-primary">
+        {id.slice(idx, idx + q.length)}
+      </span>
+      {id.slice(idx + q.length)}
+    </>
   );
 }
 

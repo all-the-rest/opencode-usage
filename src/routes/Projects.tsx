@@ -3,9 +3,13 @@
  *  - Horizontal bar chart (Recharts layout="vertical") of top projects by cost
  *  - Table: project / directory (basename, full path on hover), sessions,
  *    messages, tokens, cost, last activity (relative time)
+ *  - Global project drill-down (?project=<basename>) scopes getProjects()
+ *    server-side and shows as a clearable badge; each row links to
+ *    /sessions?project=<basename> ("projectsShowSessions").
  */
 
 import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   Bar,
   BarChart,
@@ -39,8 +43,18 @@ type ProjectSort =
   | "lastActivityAt";
 
 export default function Projects() {
-  const api = usePoll(getProjects);
+  const [searchParams] = useSearchParams();
+  const project = searchParams.get("project") ?? "";
+  // Remount (and thus re-fetch) whenever the global project filter changes.
+  return <ProjectsView key={project} project={project} />;
+}
+
+function ProjectsView({ project }: { project: string }) {
+  const api = usePoll((signal) =>
+    getProjects(signal, project ? { project } : undefined),
+  );
   const lang = useLang();
+  const [, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState<ViewMode>("volume");
   const [expandedDir, setExpandedDir] = useState<string | null>(null);
   const [sort, setSort] = useState<ProjectSort>("lastActivityAt");
@@ -77,6 +91,31 @@ export default function Projects() {
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">{t("routeProjects")}</h1>
+
+      {project && (
+        <div className="flex flex-wrap gap-2">
+          <span className="badge badge-primary gap-1">
+            {t("globalProjectFilter")}: {project}
+            <button
+              type="button"
+              className="cursor-pointer text-xs leading-none"
+              onClick={() =>
+                setSearchParams(
+                  (prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.delete("project");
+                    return next;
+                  },
+                  { replace: false },
+                )
+              }
+              aria-label="remove"
+            >
+              ✕
+            </button>
+          </span>
+        </div>
+      )}
 
       <ChartCard
         title={mode === "volume" ? t("projectsChartVolume") : t("projectsChart")}
@@ -221,6 +260,7 @@ export default function Projects() {
                           {t("colLastActivity")}
                           {arrow("lastActivityAt")}
                         </th>
+                        <th aria-label={t("projectsShowSessions")} />
                       </tr>
                     </thead>
                     <tbody>
@@ -279,6 +319,7 @@ function ProjectRows({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const navigate = useNavigate();
   const totalTokens =
     row.inputTokens + row.outputTokens + row.reasoningTokens;
   const allTokens = totalTokens + row.cacheReadTokens;
@@ -329,10 +370,22 @@ function ProjectRows({
         <td className="text-base-content/70">
           {formatRelative(row.lastActivityAt, lang)}
         </td>
+        <td className="text-right">
+          <button
+            type="button"
+            className="btn btn-outline btn-primary btn-xs whitespace-nowrap"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(sessionsPath(row.directory));
+            }}
+          >
+            {t("projectsShowSessions")}
+          </button>
+        </td>
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={6} className="bg-base-100">
+          <td colSpan={7} className="bg-base-100">
             <div className="grid grid-cols-2 gap-4 p-2 lg:grid-cols-4">
               <div className="stat bg-base-200 rounded-box p-3">
                 <div className="stat-title text-xs">{t("kpiCacheHitRatio")}</div>
@@ -394,9 +447,23 @@ function ProjectRows({
                 </div>
               </div>
             </div>
+            <div className="px-2 pb-2">
+              <button
+                type="button"
+                className="btn btn-outline btn-primary btn-xs whitespace-nowrap"
+                onClick={() => navigate(sessionsPath(row.directory))}
+              >
+                {t("projectsShowSessions")}
+              </button>
+            </div>
           </td>
         </tr>
       )}
     </>
   );
+}
+
+/** Pfad zur Session-Liste, gefiltert auf das Projekt-Basename. */
+function sessionsPath(directory: string): string {
+  return `/sessions?project=${encodeURIComponent(basename(directory))}`;
 }

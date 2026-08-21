@@ -5,13 +5,14 @@
  *  - Sortable, paginated, filterable session table from getSessions()
  *  - Expandable row detail (msg count, cache-hit radial, token breakdown)
  *
- * The list is keyed by (sort/dir/offset) in the parent so the data hook
+ * The list is keyed by (sort/dir/offset/project) in the parent so the data hook
  * re-fetches whenever those change; the client-side filter lives in the parent
  * and survives remounts.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { useSearchParams } from "react-router";
 import {
   Bar,
   BarChart,
@@ -50,11 +51,29 @@ const PAGE = 50;
 type Dir = "asc" | "desc";
 
 export default function Sessions() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const project = searchParams.get("project") ?? "";
+
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<SessionSort>("recent");
   const [dir, setDir] = useState<Dir>("desc");
   const [filter, setFilter] = useState("");
   const [minMessages, setMinMessages] = useState(20);
+
+  // Back to page 1 whenever the project scope changes.
+  useEffect(() => {
+    setOffset(0);
+  }, [project]);
+
+  const clearProject = () =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("project");
+        return next;
+      },
+      { replace: false },
+    );
 
   const setSortField = (next: SessionSort) => {
     if (next === sort) {
@@ -87,9 +106,31 @@ export default function Sessions() {
             />
           </div>
 
+          {project && (
+            <div className="flex flex-wrap gap-2">
+              <span className="badge badge-primary gap-1">
+                {t("globalProjectFilter")}: {project}
+                <button
+                  type="button"
+                  className="cursor-pointer text-xs leading-none"
+                  onClick={clearProject}
+                  aria-label="remove"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+          )}
+
           <SessionList
-            key={`${sort}-${dir}-${offset}`}
-            query={{ limit: PAGE, offset, sort, dir }}
+            key={`${sort}-${dir}-${offset}-${project}`}
+            query={{
+              limit: PAGE,
+              offset,
+              sort,
+              dir,
+              project: project || undefined,
+            }}
             filter={filter}
             onOffset={setOffset}
             onSortField={setSortField}
@@ -388,7 +429,13 @@ function SessionList({
   sort,
   dir,
 }: {
-  query: { limit: number; offset: number; sort: SessionSort; dir: Dir };
+  query: {
+    limit: number;
+    offset: number;
+    sort: SessionSort;
+    dir: Dir;
+    project?: string;
+  };
   filter: string;
   onOffset: (n: number) => void;
   onSortField: (s: SessionSort) => void;
