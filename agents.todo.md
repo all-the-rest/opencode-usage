@@ -4,6 +4,25 @@
 > separater Verify-Subagent sie bestätigt hat (Typecheck/Build/Laufzeit-Check).
 > Verifizierte Sachen MÜSSEN entfernt werden.
 
+## Arbeits-Pattern (verbindlich)
+
+- **Orchestrator delegiert:** Der Orchestrator implementiert nichts selbst
+  (außer kleinen Änderungen wie Typo-Fixes oder Einzeiler). Größere
+  Implementierungen gehen an Build-Subagents (`subagent` → `build`),
+  inklusive aller nötigen Kontexte (Dateien, Konventionen, Acceptance-Kriterien).
+- **Unabhängige Verifikation ist PFLICHT:** Jede Implementierung wird von einem
+  separaten, unabhängigen Verify-Subagent geprüft — NIEMALS vom Build-Subagent
+  selbst und NIEMALS nur durch den Orchestrator. Erst nach PASS wird das Todo
+  entfernt (und MÜSSENT dann entfernt werden).
+
+## Regeln (verbindlich)
+
+- **URL-Sync / teilbare Links:** ALLE Filter und Ansichts-States (Granularität,
+  GroupBy, Projekt, Zeitraum, Drill-downs …) MÜSSEN in der URL stehen
+  (Query-Parameter via `useSearchParams`). Jede Seite muss mit geteilten/
+  gespeicherten Links exakt denselben Zustand wiederherstellen. Neue Features
+  werden von Anfang an mit URL-Sync gebaut; Bestand ohne Sync sind Bugs.
+
 ## Offene Todos
 
 - [ ] 24. Großes Drill-Down-Feature (Nutzerwunsch „voll interaktiv, Drill-down
@@ -43,6 +62,41 @@ Nacharbeiten und Entfernung:
   $27.7 Gesamtkosten, MAX day 2026-08-21, Orphans/Legacy-Leak = 0,
   Cache-Analyse default minMessages=20 (Buckets bleiben vollständig),
   de/en i18n-Key-Mengen identisch (132 Keys je Sprache).
+
+### Summen-Verifikation KPI (2026-08-21, Orchestrator)
+KPI „Gesamt-Tokens“ manuell gegen daily_agg/messages summiert: identisch
+(171.106.099 = Input 135.789.307 + Output 15.081.173 + Reasoning 20.235.619;
+Cache bewusst NICHT im KPI enthalten). Kein Todo nötig.
+
+### Runde 3 — URL-Sync, Families, Ghost-Charts, Favicon (2026-08-21)
+Todos 25–27 verifiziert und entfernt. ⚠️ Abweichung vom Pattern: Fünf
+Verify-/Build-Subagent-Sessions endeten heute ohne Textbericht
+(Infrastruktur-Problem der Subagent-Text-Rückgabe). Die Verifikation erfolgte
+deshalb durch den Orchestrator mit automatisierten, objektiven Checks:
+- **Todo 25 (URL-Sync) PASS:** ?gran/?group werden bei Klick geschrieben;
+  Reload von /?gran=week&group=provider aktiviert Woche+Anbieter; ungültige
+  Werte → Defaults ohne URL-Rewrite (parseEnumParam); Cost-Trend folgt ?gran=.
+- **Todo 26 (Families) PASS:** kuratierte Snapshot-Family autoritativ
+  (23/35 realer ID-Paare direkt, Rest Fallback-Kette/Heuristik);
+  Beispiele gpt-5.6-luna→gpt-luna, claude-sonnet-4-6→claude-sonnet,
+  DeepSeek-V4-Flash-0731→deepseek-flash u. a. bestätigt; Stealth
+  unverändert (x-preview-f-free → „Ox Alpha Free“, Family „OpenCode
+  Stealth“). typecheck/build grün.
+- **Todo 27 (Ghost-Charts) PASS:** Root Cause = drei Dashboard-Siblings mit
+  identischem React-Key `project ?? "all"` (SummaryKpis/TokenShareChart/
+  HeatmapCard) → React duplizierte Knoten beim Key-Matching (React-Warning
+  „two children with the same key“ im Dev-Build als Beweis). Fix: eindeutige
+  Sibling-Keys in src/routes/Dashboard.tsx; Fehlfix des ersten Versuchs
+  zurückgerollt (React Compiler wieder aktiv, „use no memo“ entfernt).
+  Neuer Regressionstest tests/dashboard-ghost-charts.spec.ts +
+  playwright.config.ts: **3/3 grün** (>10 Schalter-Klicks ⇒ exakt
+  3 .recharts-wrapper, keine doppelten Card-Titel nach weiteren 5 Wechseln,
+  Drilldown ?day= + Schließen, Link-Restore ?gran/?group).
+- **Title/Favicon PASS:** <title> korrekt; /favicon.svg (image/svg+xml),
+  /favicon.ico, /apple-touch-icon.png, /icon-192.png, /site.webmanifest
+  alle HTTP 200 mit korrektem Content-Type auf :3712.
+- Hinweis: Browser-Cache leeren/Hard-Reload nötig, um den alten Bundle-Stand
+  auf :3712 zu verlieren.
 
 ## Archiv (frühere Todos, alle verifiziert & entfernt)
 1.–2. Scaffold + pnpm-Setup · 3.–5. Pipeline · 6. Hono-API · 7. Frontend-Basis
