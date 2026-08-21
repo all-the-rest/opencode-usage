@@ -32,7 +32,7 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 // --- Endpoint functions for every contract type in ./types.ts ---
 
 export function getSummary(signal?: AbortSignal): Promise<Summary> {
-  return request<Summary>("/api/summary", signal);
+  return request<Summary>("/api/stats/summary", signal);
 }
 
 export function getTimeseries(
@@ -41,15 +41,15 @@ export function getTimeseries(
   signal?: AbortSignal,
 ): Promise<TimeseriesResponse> {
   const params = new URLSearchParams({ granularity, groupBy });
-  return request<TimeseriesResponse>(`/api/timeseries?${params}`, signal);
+  return request<TimeseriesResponse>(`/api/stats/timeseries?${params}`, signal);
 }
 
 export function getModelBreakdown(signal?: AbortSignal): Promise<ModelBreakdownRow[]> {
-  return request<ModelBreakdownRow[]>("/api/models", signal);
+  return request<ModelBreakdownRow[]>("/api/stats/models", signal);
 }
 
 export function getProjects(signal?: AbortSignal): Promise<ProjectRow[]> {
-  return request<ProjectRow[]>("/api/projects", signal);
+  return request<ProjectRow[]>("/api/stats/projects", signal);
 }
 
 export type SessionSort =
@@ -77,19 +77,19 @@ export function getSessions(
   if (query.sort != null) params.set("sort", query.sort);
   if (query.dir != null) params.set("dir", query.dir);
   const qs = params.toString();
-  return request<SessionRow[]>(`/api/sessions${qs ? `?${qs}` : ""}`, signal);
+  return request<SessionRow[]>(`/api/stats/sessions${qs ? `?${qs}` : ""}`, signal);
 }
 
 export function getCacheAnalysis(signal?: AbortSignal): Promise<CacheAnalysis> {
-  return request<CacheAnalysis>("/api/cache-analysis", signal);
+  return request<CacheAnalysis>("/api/stats/cache-analysis", signal);
 }
 
 export function getHeatmap(signal?: AbortSignal): Promise<HeatmapCell[]> {
-  return request<HeatmapCell[]>("/api/heatmap", signal);
+  return request<HeatmapCell[]>("/api/stats/heatmap", signal);
 }
 
 export function getMeta(signal?: AbortSignal): Promise<MetaInfo> {
-  return request<MetaInfo>("/api/meta", signal);
+  return request<MetaInfo>("/api/stats/meta", signal);
 }
 
 // --- React hooks ---
