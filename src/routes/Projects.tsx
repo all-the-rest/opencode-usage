@@ -33,6 +33,9 @@ export default function Projects() {
   const api = usePoll(getProjects);
   const lang = useLang();
   const [mode, setMode] = useState<ViewMode>("volume");
+  const [expandedDir, setExpandedDir] = useState<string | null>(null);
+
+  const totalAllCost = (api.data ?? []).reduce((s, p) => s + p.cost, 0);
 
   const volumeOf = (p: ProjectRow) =>
     p.inputTokens + p.outputTokens + p.reasoningTokens + p.cacheReadTokens;
@@ -132,7 +135,6 @@ export default function Projects() {
                     <thead>
                       <tr>
                         <th>{t("colProject")}</th>
-                        <th>{t("colDirectory")}</th>
                         <th className="text-right">{t("colSessions")}</th>
                         <th className="text-right">{t("colMessages")}</th>
                         <th className="text-right">{t("colTokens")}</th>
@@ -141,37 +143,21 @@ export default function Projects() {
                       </tr>
                     </thead>
                     <tbody>
-                      {list.map((p) => (
-                        <tr key={p.projectId}>
-                          <td className="font-medium">
-                            {p.name ?? t("projectNone")}
-                          </td>
-                          <td
-                            className="max-w-[16rem] truncate text-base-content/70"
-                            title={p.directory}
-                          >
-                            {basename(p.directory)}
-                          </td>
-                          <td className="text-right">
-                            {formatInt(p.sessionCount, lang)}
-                          </td>
-                          <td className="text-right">
-                            {formatInt(p.msgCount, lang)}
-                          </td>
-                          <td className="text-right">
-                            {formatTokens(
-                              p.inputTokens +
-                                p.outputTokens +
-                                p.reasoningTokens +
-                                p.cacheReadTokens,
-                            )}
-                          </td>
-                          <td className="text-right">{formatCost(p.cost)}</td>
-                          <td className="text-base-content/70">
-                            {formatRelative(p.lastActivityAt, lang)}
-                          </td>
-                        </tr>
-                      ))}
+                      {list.map((p) => {
+                        const expanded = expandedDir === p.directory;
+                        return (
+                          <ProjectRows
+                            key={p.directory}
+                            row={p}
+                            lang={lang}
+                            totalCost={totalAllCost}
+                            expanded={expanded}
+                            onToggle={() =>
+                              setExpandedDir(expanded ? null : p.directory)
+                            }
+                          />
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -194,5 +180,142 @@ function ProjectTooltip({ active, payload, mode }: any) {
         {mode === "volume" ? formatTokens(p.value) : formatCost(p.value)}
       </div>
     </div>
+  );
+}
+
+// --- Expandable table rows (Projekt = Verzeichnis) ---
+
+function ProjectRows({
+  row,
+  lang,
+  totalCost,
+  expanded,
+  onToggle,
+}: {
+  row: ProjectRow;
+  lang: ReturnType<typeof useLang>;
+  totalCost: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const totalTokens =
+    row.inputTokens + row.outputTokens + row.reasoningTokens;
+  const allTokens = totalTokens + row.cacheReadTokens;
+  const cacheRatio = allTokens > 0 ? row.cacheReadTokens / allTokens : 0;
+  const costShare =
+    totalCost > 0 ? Math.round((row.cost / totalCost) * 100) : 0;
+
+  const segments: Array<{
+    key: Parameters<typeof t>[0];
+    value: number;
+    color: string;
+  }> = [
+    { key: "tokInput", value: row.inputTokens, color: "bg-primary" },
+    { key: "tokOutput", value: row.outputTokens, color: "bg-secondary" },
+    { key: "tokReasoning", value: row.reasoningTokens, color: "bg-accent" },
+    { key: "tokCacheRead", value: row.cacheReadTokens, color: "bg-neutral" },
+  ];
+  const segTotal = segments.reduce((s, x) => s + x.value, 0);
+
+  return (
+    <>
+      <tr
+        className="cursor-pointer hover:bg-base-300/40"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <td className="font-medium">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={expanded ? "collapse" : "expand"}
+              className="btn btn-ghost btn-xs btn-circle"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              {expanded ? "▲" : "▼"}
+            </button>
+            <span title={row.directory}>{basename(row.directory)}</span>
+          </div>
+        </td>
+        <td className="text-right">{formatInt(row.sessionCount, lang)}</td>
+        <td className="text-right">{formatInt(row.msgCount, lang)}</td>
+        <td className="text-right">{formatTokens(allTokens)}</td>
+        <td className="text-right">{formatCost(row.cost)}</td>
+        <td className="text-base-content/70">
+          {formatRelative(row.lastActivityAt, lang)}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} className="bg-base-100">
+            <div className="grid grid-cols-2 gap-4 p-2 lg:grid-cols-4">
+              <div className="stat bg-base-200 rounded-box p-3">
+                <div className="stat-title text-xs">{t("kpiCacheHitRatio")}</div>
+                <div className="stat-value text-xl text-primary">
+                  {Math.round(cacheRatio * 100)}%
+                </div>
+                <div className="stat-desc">
+                  {formatTokens(row.cacheReadTokens)} cache read
+                </div>
+              </div>
+              <div className="stat bg-base-200 rounded-box p-3">
+                <div className="stat-title text-xs">{t("kpiCost")}</div>
+                <div className="stat-value text-xl">{formatCost(row.cost)}</div>
+                <div className="stat-desc">{costShare}% {t("ofTotalCost")}</div>
+              </div>
+              <div className="stat bg-base-200 rounded-box p-3">
+                <div className="stat-title text-xs">{t("colMessages")}</div>
+                <div className="stat-value text-xl">
+                  {formatInt(row.msgCount, lang)}
+                </div>
+                <div className="stat-desc">
+                  {formatInt(row.sessionCount, lang)} {t("colSessions")}
+                </div>
+              </div>
+              <div className="stat bg-base-200 rounded-box p-3">
+                <div className="stat-title text-xs">{t("colLastActivity")}</div>
+                <div className="mt-1 text-sm">
+                  {formatRelative(row.lastActivityAt, lang)}
+                </div>
+                <div
+                  className="truncate text-xs text-base-content/60"
+                  title={row.directory}
+                >
+                  {row.directory}
+                </div>
+              </div>
+              <div className="col-span-2 lg:col-span-4">
+                <div className="mb-1 text-xs opacity-70">
+                  {t("colTokenMix")}
+                </div>
+                <div className="flex h-3 w-full overflow-hidden rounded-full">
+                  {segTotal > 0 &&
+                    segments.map((s) => (
+                      <div
+                        key={s.key}
+                        className={s.color}
+                        style={{ width: `${(s.value / segTotal) * 100}%` }}
+                        title={`${t(s.key)}: ${formatTokens(s.value)}`}
+                      />
+                    ))}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs opacity-70">
+                  {segments.map((s) => (
+                    <span key={s.key} className="flex items-center gap-1">
+                      <span className={`inline-block size-2 rounded-sm ${s.color}`} />
+                      {t(s.key)}: {formatTokens(s.value)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

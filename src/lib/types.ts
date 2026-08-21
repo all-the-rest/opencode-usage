@@ -117,7 +117,12 @@ export interface MetaInfo {
 }
 
 export type Granularity = "day" | "week" | "month";
-export type GroupBy = "provider" | "family" | "model" | "total";
+export type GroupBy =
+  | "provider"
+  | "family"
+  | "manufacturer"
+  | "model"
+  | "total";
 
 export interface TimeseriesResponse {
   points: TimeseriesPoint[];

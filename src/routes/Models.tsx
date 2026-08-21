@@ -27,6 +27,7 @@ import {
 } from "recharts";
 import { Models as ModelsClient } from "@opencode-ai/models";
 import type { ModelCost, ProviderMap } from "@opencode-ai/models";
+import { detectManufacturer } from "../lib/manufacturers";
 import { getModelBreakdown, usePoll } from "../lib/api";
 import type { ModelBreakdownRow } from "../lib/types";
 import {
@@ -52,6 +53,7 @@ export default function Models() {
   const provider = searchParams.get("provider") ?? "";
   const model = searchParams.get("model") ?? "";
   const family = searchParams.get("family") ?? "";
+  const manufacturer = searchParams.get("manufacturer") ?? "";
   const free = (searchParams.get("free") as FreeFilter | null) ?? "all";
 
   const setParam = (key: string, value: string) => {
@@ -70,6 +72,7 @@ export default function Models() {
     !!provider ||
     !!model.trim() ||
     !!family ||
+    !!manufacturer ||
     free !== "all";
 
   const resetFilters = () => setSearchParams(new URLSearchParams());
@@ -79,6 +82,8 @@ export default function Models() {
     return (api.data ?? []).filter((r) => {
       if (provider && r.providerId !== provider) return false;
       if (family && (r.family ?? "") !== family) return false;
+      if (manufacturer && detectManufacturer(r.modelId) !== manufacturer)
+        return false;
       if (m) {
         if (
           !r.modelId.toLowerCase().includes(m) &&
@@ -90,7 +95,7 @@ export default function Models() {
       if (free === "paid" && r.cost === 0) return false;
       return true;
     });
-  }, [api.data, provider, model, family, free]);
+  }, [api.data, provider, model, family, manufacturer, free]);
 
   // Distinct providers / families for the filter selects (driven by full data).
   const providers = useMemo(() => {
@@ -103,6 +108,15 @@ export default function Models() {
     for (const r of api.data ?? []) if (r.family) set.add(r.family);
     return [...set].sort();
   }, [api.data]);
+  const manufacturers = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of api.data ?? []) set.add(detectManufacturer(r.modelId));
+    return [...set].sort();
+  }, [api.data]);
+  const modelIds = useMemo(
+    () => [...new Set((api.data ?? []).map((r) => r.modelId))].sort(),
+    [api.data],
+  );
 
   const providerName = (id: string) =>
     providers.find(([pid]) => pid === id)?.[1] ?? id;
@@ -122,14 +136,18 @@ export default function Models() {
         provider={provider}
         model={model}
         family={family}
+        manufacturer={manufacturer}
         free={free}
         providers={providers}
         families={families}
+        manufacturers={manufacturers}
+        modelIds={modelIds}
         providerName={providerName}
         hasFilter={hasFilter}
         onProvider={(v) => setParam("provider", v)}
         onModel={(v) => setParam("model", v)}
         onFamily={(v) => setParam("family", v)}
+        onManufacturer={(v) => setParam("manufacturer", v)}
         onFree={(v) => setParam("free", v === "all" ? "" : v)}
         onReset={resetFilters}
       />
@@ -163,6 +181,20 @@ export default function Models() {
             groupKey="family"
           />
         </ChartCard>
+        <ChartCard
+          title={t("modelsByManufacturer")}
+          height={300}
+          empty={filtered.length === 0}
+        >
+          <DonutChart
+            loading={api.loading}
+            error={api.error}
+            onRetry={api.refetch}
+            rows={filtered}
+            meta={meta.providers}
+            groupKey="manufacturer"
+          />
+        </ChartCard>
       </div>
 
       <TopModelsChart
@@ -186,28 +218,36 @@ function ModelFilters({
   provider,
   model,
   family,
+  manufacturer,
   free,
   providers,
   families,
+  manufacturers,
+  modelIds,
   providerName,
   hasFilter,
   onProvider,
   onModel,
   onFamily,
+  onManufacturer,
   onFree,
   onReset,
 }: {
   provider: string;
   model: string;
   family: string;
+  manufacturer: string;
   free: FreeFilter;
   providers: [string, string][];
   families: string[];
+  manufacturers: string[];
+  modelIds: string[];
   providerName: (id: string) => string;
   hasFilter: boolean;
   onProvider: (v: string) => void;
   onModel: (v: string) => void;
   onFamily: (v: string) => void;
+  onManufacturer: (v: string) => void;
   onFree: (v: FreeFilter) => void;
   onReset: () => void;
 }) {
@@ -240,10 +280,34 @@ function ModelFilters({
             <input
               type="text"
               className="input input-bordered input-sm"
-              placeholder={t("filterModel")}
+              placeholder={t("filterModelPlaceholder")}
               value={model}
+              list="model-id-options"
               onChange={(e) => onModel(e.target.value)}
             />
+            <datalist id="model-id-options">
+              {modelIds.map((id) => (
+                <option key={id} value={id} />
+              ))}
+            </datalist>
+          </label>
+
+          <label className="form-control w-auto">
+            <span className="label-text text-sm opacity-70">
+              {t("filterManufacturer")}
+            </span>
+            <select
+              className="select select-bordered select-sm"
+              value={manufacturer}
+              onChange={(e) => onManufacturer(e.target.value)}
+            >
+              <option value="">{t("filterAll")}</option>
+              {manufacturers.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="form-control w-auto">
@@ -486,7 +550,7 @@ function DonutChart({
   onRetry: () => void;
   rows: ModelBreakdownRow[];
   meta: ProviderMap | null;
-  groupKey: "providerId" | "family";
+  groupKey: "providerId" | "family" | "manufacturer";
 }) {
   return (
     <AsyncState loading={loading} error={error} onRetry={onRetry}>
@@ -498,7 +562,9 @@ function DonutChart({
           const key =
             groupKey === "providerId"
               ? resolveRow(r, meta).providerName
-              : resolveRow(r, meta).family ?? t("seriesOther");
+              : groupKey === "manufacturer"
+                ? detectManufacturer(r.modelId)
+                : resolveRow(r, meta).family ?? t("seriesOther");
           const total =
             r.inputTokens +
             r.outputTokens +
@@ -623,6 +689,7 @@ function ModelTable({
                     <th>{t("colProvider")}</th>
                     <th>{t("colModel")}</th>
                     <th>{t("colFamily")}</th>
+                    <th>{t("colManufacturer")}</th>
                     <th
                       className="cursor-pointer select-none"
                       onClick={() => toggle("totalTokens")}
@@ -659,6 +726,7 @@ function ModelTable({
                         <td>{info.providerName}</td>
                         <td>{info.modelName}</td>
                         <td>{info.family ?? "—"}</td>
+                        <td>{detectManufacturer(r.modelId)}</td>
                         <td className="text-right font-medium">
                           {formatTokens(
                             r.inputTokens + r.outputTokens + r.reasoningTokens,

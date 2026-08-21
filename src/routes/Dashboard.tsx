@@ -159,7 +159,7 @@ function GroupBySwitch({
   value: GroupBy;
   onChange: (g: GroupBy) => void;
 }) {
-  const opts: GroupBy[] = ["total", "provider", "family"];
+  const opts: GroupBy[] = ["total", "provider", "family", "manufacturer"];
   return (
     <div className="flex items-center gap-2">
       <span className="text-sm opacity-70">{t("groupBy")}</span>
@@ -175,7 +175,9 @@ function GroupBySwitch({
                 ? "groupTotal"
                 : g === "provider"
                   ? "groupProvider"
-                  : "groupFamily",
+                  : g === "family"
+                    ? "groupFamily"
+                    : "groupManufacturer",
             )}
           </button>
         ))}

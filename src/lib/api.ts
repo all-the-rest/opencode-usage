@@ -53,6 +53,7 @@ export function getProjects(signal?: AbortSignal): Promise<ProjectRow[]> {
 }
 
 export type SessionSort =
+  | "recent"
   | "timeCreated"
   | "timeUpdated"
   | "cost"

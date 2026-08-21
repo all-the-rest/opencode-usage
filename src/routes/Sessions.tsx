@@ -51,7 +51,7 @@ type Dir = "asc" | "desc";
 
 export default function Sessions() {
   const [offset, setOffset] = useState(0);
-  const [sort, setSort] = useState<SessionSort>("tokens");
+  const [sort, setSort] = useState<SessionSort>("recent");
   const [dir, setDir] = useState<Dir>("desc");
   const [filter, setFilter] = useState("");
   const [minMessages, setMinMessages] = useState(20);
@@ -529,11 +529,25 @@ function SessionRowItem({
         aria-expanded={expanded}
       >
         <td className="max-w-[22rem]">
-          <div
-            className="line-clamp-2 font-medium"
-            title={row.title ?? undefined}
-          >
-            {formatSessionTitle(row.title, lang)}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={expanded ? "collapse" : "expand"}
+              className="btn btn-ghost btn-xs btn-circle"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              {expanded ? "▲" : "▼"}
+            </button>
+            <div
+              className="line-clamp-2 font-medium"
+              title={row.title ?? undefined}
+            >
+              {formatSessionTitle(row.title, lang)}
+            </div>
           </div>
         </td>
         <td

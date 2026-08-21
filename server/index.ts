@@ -22,6 +22,7 @@ import {
   type DatabaseType,
 } from "./db";
 import { resolveModelMeta, familyKey } from "./metadata";
+import { detectManufacturer } from "../src/lib/manufacturers";
 import type {
   Summary,
   TimeseriesPoint,
@@ -157,6 +158,8 @@ function groupKeyValue(
       return r.model_id;
     case "family":
       return familyKey(r.provider_id, r.model_id);
+    case "manufacturer":
+      return detectManufacturer(r.model_id);
     case "total":
     default:
       return "total";
@@ -168,7 +171,11 @@ function validGranularity(v: string | undefined): Granularity {
 }
 
 function validGroupBy(v: string | undefined): GroupBy {
-  return v === "provider" || v === "family" || v === "model" || v === "total"
+  return v === "provider" ||
+    v === "family" ||
+    v === "manufacturer" ||
+    v === "model" ||
+    v === "total"
     ? v
     : "total";
 }
@@ -284,39 +291,44 @@ app.get("/api/stats/models", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/projects  (project_agg, sorted by cost desc)
+// GET /api/stats/projects — Projekte = Verzeichnisse (Nutzerwunsch):
+// Aggregation aus sessions_agg GROUP BY directory, sortiert nach cost desc
 // ---------------------------------------------------------------------------
-interface ProjectAggRow {
-  project_id: string;
-  directory: string;
-  name: string | null;
-  session_count: number;
-  msg_count: number;
-  input_tokens: number;
-  output_tokens: number;
-  reasoning_tokens: number;
-  cache_read: number;
-  cache_write: number;
-  cost: number;
-  last_activity_at: number;
-}
-
 app.get("/api/stats/projects", (c) =>
   handleApi(c, (db) => {
     const rows = db
       .prepare(
-        `SELECT project_id, directory, name, session_count, msg_count,
-                input_tokens, output_tokens, reasoning_tokens,
-                cache_read, cache_write, cost, last_activity_at
-         FROM project_agg
+        `SELECT directory,
+                COUNT(*) AS session_count,
+                SUM(msg_count) AS msg_count,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens,
+                SUM(cache_read) AS cache_read,
+                SUM(cache_write) AS cache_write,
+                SUM(cost) AS cost,
+                MAX(time_updated) AS last_activity_at
+         FROM sessions_agg
+         GROUP BY directory
          ORDER BY cost DESC`,
       )
-      .all() as ProjectAggRow[];
+      .all() as Array<{
+      directory: string;
+      session_count: number;
+      msg_count: number;
+      input_tokens: number;
+      output_tokens: number;
+      reasoning_tokens: number;
+      cache_read: number;
+      cache_write: number;
+      cost: number;
+      last_activity_at: number;
+    }>;
 
     const result: ProjectRow[] = rows.map((r) => ({
-      projectId: r.project_id,
+      projectId: r.directory, // Verzeichnis IST das Projekt
       directory: r.directory,
-      name: r.name,
+      name: null,
       sessionCount: r.session_count,
       msgCount: r.msg_count,
       inputTokens: r.input_tokens,
