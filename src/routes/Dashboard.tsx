@@ -253,7 +253,7 @@ function TokenTrendChart({
       title={t("chartTokenTrend")}
       height={340}
       right={
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <GranularitySwitch value={granularity} onChange={onGranularity} />
           <GroupBySwitch value={groupBy} onChange={onGroupBy} />
         </div>
