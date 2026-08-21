@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS sessions_agg (
 
 CREATE TABLE IF NOT EXISTS daily_agg (
   day TEXT NOT NULL,                   -- YYYY-MM-DD (lokale Zeit)
+  directory TEXT NOT NULL,             -- session_v2.directory je message; Orphans => ""
   provider_id TEXT NOT NULL,
   model_id TEXT NOT NULL,
   msg_count INTEGER NOT NULL DEFAULT 0,
@@ -52,15 +53,16 @@ CREATE TABLE IF NOT EXISTS daily_agg (
   cache_read INTEGER NOT NULL DEFAULT 0,
   cache_write INTEGER NOT NULL DEFAULT 0,
   cost REAL NOT NULL DEFAULT 0,
-  PRIMARY KEY (day, provider_id, model_id)
+  PRIMARY KEY (day, directory, provider_id, model_id)
 );
 
 CREATE TABLE IF NOT EXISTS hourly_agg (
   day TEXT NOT NULL,                   -- YYYY-MM-DD lokal
   hour INTEGER NOT NULL,               -- 0-23 lokal
+  directory TEXT NOT NULL,             -- session_v2.directory je message; Orphans => ""
   msg_count INTEGER NOT NULL DEFAULT 0,
   cost REAL NOT NULL DEFAULT 0,
-  PRIMARY KEY (day, hour)
+  PRIMARY KEY (day, hour, directory)
 );
 
 CREATE TABLE IF NOT EXISTS project_agg (
@@ -110,6 +112,9 @@ Migrations-Artefakte eines noch offenen alten Clients und werden ignoriert).
 - Session-Felder (project_id, directory, title, model, agent) kommen aus
   `session_v2` via `session_id → session_v2.id`. Fehlende Session referenzieren
   (orphans): in `sessions_agg` überspringen.
+- `directory` in `daily_agg`/`hourly_agg` = `session_v2.directory` der jeweiligen
+  Message (via `session_id`). Messages ohne Session (Orphans) erhalten
+  `directory = ''` (leerer String, damit sie in der globalen Summe bleiben).
 
 ### Historisch (legacy `message`, nicht mehr genutzt)
 

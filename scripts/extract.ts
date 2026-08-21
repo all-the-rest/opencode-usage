@@ -12,6 +12,11 @@
  * (idempotent via INSERT OR REPLACE on message_id); the affected aggregate keys
  * (sessions_agg / daily_agg / hourly_agg / project_agg) are recomputed via
  * DELETE + INSERT from the messages table.
+ *
+ * daily_agg / hourly_agg carry a `directory` dimension (session_v2.directory per
+ * message; orphans => "") so the server can filter every stat by project dir.
+ * If an existing DB has the old schema (no `directory` column), the tables are
+ * dropped, recreated with the new shape, and a full rebuild is forced.
  */
 
 import Database from 'better-sqlite3';
@@ -90,7 +95,8 @@ function initAnalysisDb(db: Database.Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS daily_agg (
-      day TEXT NOT NULL,
+      day TEXT NOT NULL,                   -- YYYY-MM-DD (lokale Zeit)
+      directory TEXT NOT NULL,             -- session_v2.directory je message; Orphans => ''
       provider_id TEXT NOT NULL,
       model_id TEXT NOT NULL,
       msg_count INTEGER NOT NULL DEFAULT 0,
@@ -100,15 +106,16 @@ function initAnalysisDb(db: Database.Database): void {
       cache_read INTEGER NOT NULL DEFAULT 0,
       cache_write INTEGER NOT NULL DEFAULT 0,
       cost REAL NOT NULL DEFAULT 0,
-      PRIMARY KEY (day, provider_id, model_id)
+      PRIMARY KEY (day, directory, provider_id, model_id)
     );
 
     CREATE TABLE IF NOT EXISTS hourly_agg (
-      day TEXT NOT NULL,
-      hour INTEGER NOT NULL,
+      day TEXT NOT NULL,                   -- YYYY-MM-DD lokal
+      hour INTEGER NOT NULL,               -- 0-23 lokal
+      directory TEXT NOT NULL,             -- session_v2.directory je message; Orphans => ''
       msg_count INTEGER NOT NULL DEFAULT 0,
       cost REAL NOT NULL DEFAULT 0,
-      PRIMARY KEY (day, hour)
+      PRIMARY KEY (day, hour, directory)
     );
 
     CREATE TABLE IF NOT EXISTS project_agg (
@@ -180,13 +187,30 @@ export interface SyncResult {
 // ---------------------------------------------------------------------------
 export function sync(opts: { full?: boolean } = {}): SyncResult {
   const startedAt = Date.now();
-  const full = opts.full === true;
+  let full = opts.full === true;
 
   fs.mkdirSync(path.dirname(ANALYSIS_DB), { recursive: true });
   const analysis = new Database(ANALYSIS_DB);
   try {
     analysis.pragma('journal_mode = WAL');
     initAnalysisDb(analysis);
+
+    // --- schema migration: daily_agg / hourly_agg gained a `directory`
+    // dimension. If an existing DB still uses the old schema (no `directory`
+    // column), drop + recreate those two tables and force a full rebuild so
+    // every aggregate is recomputed with the new shape. Self-healing, no
+    // separate version number required (the directory column is the signal).
+    const dailySql = (
+      analysis.prepare("SELECT sql FROM sqlite_master WHERE name = 'daily_agg'").get() as
+        | { sql: string | null }
+        | undefined
+    )?.sql;
+    const needsMigration = dailySql != null && !dailySql.includes('directory');
+    if (needsMigration) {
+      analysis.exec('DROP TABLE IF EXISTS daily_agg; DROP TABLE IF EXISTS hourly_agg;');
+      initAnalysisDb(analysis);
+      full = true;
+    }
 
     let lastSync: number;
     if (full) {
@@ -208,6 +232,16 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
     // migration artifacts (a stale client left open) and are out of scope.
     const source = new Database(SOURCE_DB, { fileMustExist: true, readonly: true });
     try {
+      // session -> directory map (ALL sessions) for per-message directory
+      // attribution in daily_agg / hourly_agg. Orphan messages (session not in
+      // session_v2) resolve to "" (documented in docs/stats-db-schema.md).
+      const sessionDir = new Map<string, string>();
+      for (const r of source
+        .prepare('SELECT id, directory FROM session_v2')
+        .all() as Array<{ id: string; directory: string }>) {
+        sessionDir.set(r.id, r.directory);
+      }
+
       const selectMsgs = source.prepare(`
         SELECT id, session_id, time_created, data
         FROM session_message
@@ -295,30 +329,14 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
       const delDaily = analysis.prepare('DELETE FROM daily_agg WHERE day = ?');
       const insDaily = analysis.prepare(`
         INSERT OR REPLACE INTO daily_agg
-          (day, provider_id, model_id, msg_count, input_tokens, output_tokens, reasoning_tokens, cache_read, cache_write, cost)
-        VALUES (@day, @provider_id, @model_id, @msg_count, @input_tokens, @output_tokens, @reasoning_tokens, @cache_read, @cache_write, @cost)
+          (day, directory, provider_id, model_id, msg_count, input_tokens, output_tokens, reasoning_tokens, cache_read, cache_write, cost)
+        VALUES (@day, @directory, @provider_id, @model_id, @msg_count, @input_tokens, @output_tokens, @reasoning_tokens, @cache_read, @cache_write, @cost)
       `);
       const delHourly = analysis.prepare('DELETE FROM hourly_agg WHERE day = ?');
       const insHourly = analysis.prepare(`
-        INSERT OR REPLACE INTO hourly_agg (day, hour, msg_count, cost)
-        VALUES (@day, @hour, @msg_count, @cost)
+        INSERT OR REPLACE INTO hourly_agg (day, hour, directory, msg_count, cost)
+        VALUES (@day, @hour, @directory, @msg_count, @cost)
       `);
-      const sumDay = analysis.prepare(`
-        SELECT provider_id, model_id,
-               COUNT(*) AS msg_count,
-               SUM(tokens_input) AS input_tokens,
-               SUM(tokens_output) AS output_tokens,
-               SUM(tokens_reasoning) AS reasoning_tokens,
-               SUM(cache_read) AS cache_read,
-               SUM(cache_write) AS cache_write,
-               SUM(cost) AS cost
-        FROM messages
-        WHERE time_created >= ? AND time_created < ?
-        GROUP BY provider_id, model_id
-      `);
-      const dayMsgs = analysis.prepare(
-        'SELECT time_created, cost FROM messages WHERE time_created >= ? AND time_created < ?',
-      );
       const delSession = analysis.prepare('DELETE FROM sessions_agg WHERE session_id = ?');
       const insSession = analysis.prepare(`
         INSERT OR REPLACE INTO sessions_agg
@@ -395,41 +413,92 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
       const write = analysis.transaction(() => {
         for (const it of items) insertMsg.run(it);
 
-        // daily_agg + hourly_agg for affected days (recomputed from messages)
+        // daily_agg + hourly_agg for affected days (recomputed from messages,
+        // attributed to each message's session directory; orphans => "").
+        const dayMsgStmt = analysis.prepare(`
+          SELECT session_id, provider_id, model_id, cost, tokens_input, tokens_output,
+                 tokens_reasoning, cache_read, cache_write, time_created
+          FROM messages WHERE time_created >= ? AND time_created < ?
+        `);
         for (const day of affectedDays) {
           const { start, end } = dayRange(day);
-          delDaily.run(day);
-          for (const r of sumDay.all(start, end) as Array<
-            SumRow & { provider_id: string; model_id: string }
-          >) {
-            insDaily.run({
-              day,
-              provider_id: r.provider_id,
-              model_id: r.model_id,
-              msg_count: r.msg_count,
-              input_tokens: r.input_tokens ?? 0,
-              output_tokens: r.output_tokens ?? 0,
-              reasoning_tokens: r.reasoning_tokens ?? 0,
-              cache_read: r.cache_read ?? 0,
-              cache_write: r.cache_write ?? 0,
-              cost: r.cost ?? 0,
-            });
-          }
-          delHourly.run(day);
-          const byHour = new Map<number, { msg_count: number; cost: number }>();
-          for (const m of dayMsgs.all(start, end) as Array<{
-            time_created: number;
+          const rows = dayMsgStmt.all(start, end) as Array<{
+            session_id: string;
+            provider_id: string;
+            model_id: string;
             cost: number;
-          }>) {
+            tokens_input: number;
+            tokens_output: number;
+            tokens_reasoning: number;
+            cache_read: number;
+            cache_write: number;
+            time_created: number;
+          }>;
+
+          const dailyMap = new Map<
+            string,
+            {
+              day: string;
+              directory: string;
+              provider_id: string;
+              model_id: string;
+              msg_count: number;
+              input_tokens: number;
+              output_tokens: number;
+              reasoning_tokens: number;
+              cache_read: number;
+              cache_write: number;
+              cost: number;
+            }
+          >();
+          const hourlyMap = new Map<
+            string,
+            { day: string; directory: string; hour: number; msg_count: number; cost: number }
+          >();
+
+          for (const m of rows) {
+            const dir = sessionDir.get(m.session_id) ?? '';
+            const dk = `${dir} ${m.provider_id} ${m.model_id}`;
+            let d = dailyMap.get(dk);
+            if (!d) {
+              d = {
+                day,
+                directory: dir,
+                provider_id: m.provider_id,
+                model_id: m.model_id,
+                msg_count: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                reasoning_tokens: 0,
+                cache_read: 0,
+                cache_write: 0,
+                cost: 0,
+              };
+              dailyMap.set(dk, d);
+            }
+            d.msg_count += 1;
+            d.input_tokens += m.tokens_input;
+            d.output_tokens += m.tokens_output;
+            d.reasoning_tokens += m.tokens_reasoning;
+            d.cache_read += m.cache_read;
+            d.cache_write += m.cache_write;
+            d.cost += m.cost;
+
             const h = localHour(m.time_created);
-            const e = byHour.get(h) ?? { msg_count: 0, cost: 0 };
-            e.msg_count += 1;
-            e.cost += m.cost;
-            byHour.set(h, e);
+            const hk = `${dir} ${h}`;
+            let hh = hourlyMap.get(hk);
+            if (!hh) {
+              hh = { day, directory: dir, hour: h, msg_count: 0, cost: 0 };
+              hourlyMap.set(hk, hh);
+            }
+            hh.msg_count += 1;
+            hh.cost += m.cost;
           }
-          for (const [h, v] of byHour) {
-            insHourly.run({ day, hour: h, msg_count: v.msg_count, cost: v.cost });
-          }
+
+          delDaily.run(day);
+          for (const d of dailyMap.values()) insDaily.run(d);
+          delHourly.run(day);
+          for (const h of hourlyMap.values()) insHourly.run(h);
         }
 
         // sessions_agg for affected (non-orphan) sessions
