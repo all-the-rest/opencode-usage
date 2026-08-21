@@ -13,6 +13,8 @@ import { Fragment, useState } from "react";
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Legend,
   Line,
@@ -265,7 +267,7 @@ function TokenTrendChart({
           const { rows, series } = buildTokenRows(pts, groupBy);
           return (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <BarChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
               <XAxis
                 dataKey="day"
@@ -278,21 +280,18 @@ function TokenTrendChart({
                 fontSize={11}
                 width={48}
               />
-              <Tooltip content={<TokenTrendTooltip />} />
+              <Tooltip content={<TokenTrendTooltip />} cursor={{ fill: "var(--color-base-content)", opacity: 0.08 }} />
               <Legend wrapperStyle={{ flexWrap: "wrap" }} />
               {series.map((s, i) => (
-                <Area
+                <Bar
                   key={s.key}
-                  type="monotone"
                   dataKey={s.key}
                   name={s.label}
-                  stackId="1"
+                  stackId="tokens"
                   fill={paletteColor(i)}
-                  stroke={paletteColor(i)}
-                  fillOpacity={0.7}
                 />
               ))}
-              </AreaChart>
+              </BarChart>
             </ResponsiveContainer>
           );
         })()}
