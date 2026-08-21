@@ -29,11 +29,31 @@ import { AsyncState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { ModeSwitch, type ViewMode } from "../components/ModeSwitch";
 
+type Dir = "asc" | "desc";
+type ProjectSort =
+  | "project"
+  | "sessionCount"
+  | "msgCount"
+  | "tokens"
+  | "cost"
+  | "lastActivityAt";
+
 export default function Projects() {
   const api = usePoll(getProjects);
   const lang = useLang();
   const [mode, setMode] = useState<ViewMode>("volume");
   const [expandedDir, setExpandedDir] = useState<string | null>(null);
+  const [sort, setSort] = useState<ProjectSort>("lastActivityAt");
+  const [dir, setDir] = useState<Dir>("desc");
+
+  const setSortField = (next: ProjectSort) => {
+    if (next === sort) {
+      setDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSort(next);
+      setDir(next === "project" ? "asc" : "desc");
+    }
+  };
 
   const totalAllCost = (api.data ?? []).reduce((s, p) => s + p.cost, 0);
 
@@ -129,21 +149,82 @@ export default function Projects() {
                 return (
                   <p className="text-base-content/60">{t("stateNoData")}</p>
                 );
+
+              const sortValue = (p: ProjectRow): number | string => {
+                switch (sort) {
+                  case "project":
+                    return basename(p.directory);
+                  case "tokens":
+                    return volumeOf(p);
+                  default:
+                    return p[sort];
+                }
+              };
+
+              const sorted = [...list].sort((a, b) => {
+                const va = sortValue(a);
+                const vb = sortValue(b);
+                const cmp =
+                  typeof va === "string" && typeof vb === "string"
+                    ? va.localeCompare(vb)
+                    : (va as number) - (vb as number);
+                return dir === "asc" ? cmp : -cmp;
+              });
+
+              const arrow = (key: ProjectSort) =>
+                key === sort ? (dir === "asc" ? " ▲" : " ▼") : "";
+
               return (
                 <div className="overflow-x-auto">
                   <table className="table table-zebra table-sm">
                     <thead>
                       <tr>
-                        <th>{t("colProject")}</th>
-                        <th className="text-right">{t("colSessions")}</th>
-                        <th className="text-right">{t("colMessages")}</th>
-                        <th className="text-right">{t("colTokens")}</th>
-                        <th className="text-right">{t("kpiCost")}</th>
-                        <th>{t("colLastActivity")}</th>
+                        <th
+                          className="cursor-pointer select-none"
+                          onClick={() => setSortField("project")}
+                        >
+                          {t("colProject")}
+                          {arrow("project")}
+                        </th>
+                        <th
+                          className="cursor-pointer select-none text-right"
+                          onClick={() => setSortField("sessionCount")}
+                        >
+                          {t("colSessions")}
+                          {arrow("sessionCount")}
+                        </th>
+                        <th
+                          className="cursor-pointer select-none text-right"
+                          onClick={() => setSortField("msgCount")}
+                        >
+                          {t("colMessages")}
+                          {arrow("msgCount")}
+                        </th>
+                        <th
+                          className="cursor-pointer select-none text-right"
+                          onClick={() => setSortField("tokens")}
+                        >
+                          {t("colTokens")}
+                          {arrow("tokens")}
+                        </th>
+                        <th
+                          className="cursor-pointer select-none text-right"
+                          onClick={() => setSortField("cost")}
+                        >
+                          {t("kpiCost")}
+                          {arrow("cost")}
+                        </th>
+                        <th
+                          className="cursor-pointer select-none"
+                          onClick={() => setSortField("lastActivityAt")}
+                        >
+                          {t("colLastActivity")}
+                          {arrow("lastActivityAt")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {list.map((p) => {
+                      {sorted.map((p) => {
                         const expanded = expandedDir === p.directory;
                         return (
                           <ProjectRows
