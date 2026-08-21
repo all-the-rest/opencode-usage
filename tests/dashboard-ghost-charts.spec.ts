@@ -97,6 +97,12 @@ test("group/resolution switches keep exactly 3 .recharts-wrapper nodes (>14 clic
 });
 
 test("bar click sets ?period=…&pperiod=day; integrated drill-down; chip ✕ clears it", async () => {
+  // Wait until the token-trend chart has actually rendered bars — after a
+  // cold server start the first fetch can outlive goto(), and evaluateAll
+  // below does NOT auto-retry.
+  await expect(
+    trendCard().locator(".recharts-bar-rectangle path").first(),
+  ).toBeAttached({ timeout: 15_000 });
   // Click the tallest visible bar of the token-trend chart via real mouse
   // events (zero-height segments of stacked series are skipped).
   const target = await trendCard()

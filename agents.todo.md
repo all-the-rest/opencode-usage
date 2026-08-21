@@ -29,6 +29,62 @@
 
 ## Verifikations-Log
 
+### Runde 7 — Token-Total-Definition vereinheitlicht (2026-08-21)
+**Menschliche Entscheidung (Nutzer):**
+- Token-Totale enthält IMMER Cache Read — KPI „Gesamt-Tokens" muss exakt dem
+  Tooltip-Gesamt im Token-Zeitverlauf entsprechen (z. B. 21.08.: 662.882.203,
+  Gesamt über alles: 4,375 Mrd.). Zuvor schloss der KPI Cache bewusst aus
+  (Runde-KPI-Entscheid) → aufgehoben.
+- „Only reasoning and output should be combined".
+
+**Agent-Interpretation/Umsetzung (durch Orchestrator, aus der Formulierung
+abgeleitet — bei Abweichung vom Nutzer korrigieren lassen):**
+- Reasoning wird mit Output zu EINEM Segment kombiniert („Output
+  (inkl. Reasoning)", neuer i18n-Key `tokOutputIncl`); Input und Cache Read
+  bleiben eigene Segmente → 3 Segmente statt 4.
+- „Same rule everywhere": Definition auch angewandt auf Gruppierungs-Ranking
+  (Anbieter/Family/Hersteller), Day-Drilldown byModel/byProject,
+  Cache-Analyse-Punkte und Share-Card-Hero-Zahl.
+
+**Umsetzung:** server/index.ts (summary + day + cache-analysis), server/share.ts,
+Dashboard.tsx (TOKEN_FIELDS/SHARE_CATS auf 3 Serien, foldReasoningIntoOutput).
+tsc clean, Build grün, dashboard-ghost-charts 3/3 gegen frisches :3712.
+Live verifiziert: summary.totalTokens = 4.375.543.753; Tag 21.08.-Summe =
+662.882.203 ≙ Tooltip-Wert vor der Umstellung.
+
+
+### Runde 6 — Token-Trend-Stacking sortiert (2026-08-21, Orchestrator)
+Größte Serie oben im Stapel + Legende/Tooltip größter→kleinster — nur bei
+Gruppierung (Anbieter/Family/Hersteller), „Gesamt“ behält die semantische
+Token-Typen-Reihenfolge:
+- Dashboard.tsx TokenTrendChart: Bars aufsteigend gerendert (Recharts stapelt
+  die erste Serie unten → größte liegt jetzt oben), Farben über den
+  absteigenden Original-Index stabil pro Serie; Legend mit eigener
+  DescLegend-Content-Komponente (Recharts 3 kennt kein `reversed` mehr);
+  Tooltip sortiert bei sortDesc nach Wert.
+- Flaky-Fix tests/dashboard-ghost-charts.spec.ts: Bar-Click-Test wartet jetzt
+  via expect(...).toBeAttached auf gerenderte Balken (evaluateAll retryt
+  nicht; Kaltstart des API-Servers ließ den ersten Load langsamer laufen als
+  goto()). Kein Produktions-Bug.
+- Verifikation: tsc --noEmit clean; pnpm build grün; Playwright
+  dashboard-ghost-charts 3/3 grün gegen frisches dist auf :3712.
+
+### Runde 5 — Stealth-Rename + Family-Overrides (2026-08-21, Orchestrator)
+Drei Todos (Stealth-Rename, Muse-Fix, MiMo-Fix) umgesetzt und mit
+automatisierten, objektiven Checks verifiziert (Subagent-Text-Rückgabe
+weiterhin unzuverlässig, wie schon Runde 3/4) → entfernt:
+- `src/lib/manual-manufacturers.ts`: neue Stealth-Regel `["ox-alpha", …]`
+  (opencode-go-ID desselben Stealth-Modells wie `x-preview-f-free`) sowie neuer
+  Export `MANUAL_FAMILY_RULES` (kuratierte Family-Overrides: `mimo`→`mimo`,
+  `muse`→`muse`, Vorrang vor Katalog UND Heuristik).
+- `server/metadata.ts`: Overrides in `catalogFamily()` vor dem Katalog
+  angewendet; Docstrings aktualisiert (Override → Katalog → Heuristik).
+- Verifikation: tsc --noEmit clean; Runtime-Auflösung für alle 8 betroffenen
+  IDs geprüft — ox-alpha-free ≡ x-preview-f-free („Ox Alpha Free“, OpenCode
+  Stealth), big-pickle eigenständig; Muse Contributor/Free → family „muse“;
+  mimo-v2.5(±free/pro) → family „mimo“. Live gegen :3712 bestätigt
+  (/api/stats/models liefert korrekte Namen/Familys; daily_agg speichert nur
+  rohe model_ids, daher kein Re-Sync nötig). Nutzer bestätigt: „works now“.
 ### Runde 1 — Datenpipeline (2026-08-21)
 Todos 3 (Extractor), 4 (Watch), 5 (Verifikation) durch unabhängigen
 Verify-Subagent BESTÄTIGT (PASS) und entfernt:
