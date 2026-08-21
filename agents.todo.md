@@ -104,8 +104,9 @@
            Meta-404-Bug (BEREITS GEFIXT, commit nach 3069694) -> via
            Re-Capture bestätigen, danach diesen Punkt entfernen
 - [ ] 19. Nutzer-Feedback: Volumen-Sicht für Modelle (hy3 fehlt):
-        a) Models-Seite: Umschalter Kosten/Token-Volumen für das Top-10-
-           Balkendiagramm (Titel passt sich mit an)
+        a) Models-Seite: ZWEI Top-10-Balkendiagramme als eigene Karten:
+           "Top 10 nach Volumen" UND "Top 10 nach Kosten" (Nutzerwunsch:
+           dupliziert statt Umschalter; Umschalter hier entfallen)
         b) Tabelle: Sortierung standardmäßig zusätzlich nach Volumen
            möglich (Sortier-Header existieren — prüfen, dass Volumen=
            input+output+reasoning als Sortierschlüssel vorhanden ist)
