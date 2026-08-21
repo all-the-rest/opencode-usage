@@ -3,7 +3,8 @@
  *  - Day-detail drill-down section (URL param ?day=YYYY-MM-DD) at the top
  *  - KPI row from getSummary()
  *  - Stacked token-trend BarChart from getTimeseries() (granularity + groupBy
- *    switches; clicking a bar drills into that day/period)
+ *    switches, URL-synced via ?gran= and ?group=; clicking a bar drills into
+ *    that day/period)
  *  - Cost-trend LineChart from getTimeseries()
  *  - Token-share AreaChart (clicking drills into that day)
  *  - Activity heatmap from getHeatmap() (rows = hours 0-23, columns = weeks;
@@ -15,7 +16,7 @@
  * retry states through the shared components.
  */
 
-import { Fragment, useState } from "react";
+import { Fragment } from "react";
 import { useSearchParams } from "react-router";
 import {
   Area,
@@ -67,19 +68,63 @@ type Row = Record<string, number | string>;
 
 /** URL param holding the drill-down day ("YYYY-MM-DD"). */
 const DAY_PARAM = "day";
+/** URL param for the token-trend granularity (?gran=day|week|month). */
+const GRAN_PARAM = "gran";
+/** URL param for the token-trend grouping (?group=total|provider|…). */
+const GROUP_PARAM = "group";
+
+const GRANULARITIES = ["day", "week", "month"] as const satisfies readonly Granularity[];
+const GROUP_BYS = [
+  "total",
+  "provider",
+  "family",
+  "manufacturer",
+  "model",
+] as const satisfies readonly GroupBy[];
+const DEFAULT_GRANULARITY: Granularity = "day";
+const DEFAULT_GROUP_BY: GroupBy = "total";
+
+/** Parse a query-param value against an allow-list, falling back on miss. */
+function parseEnumParam<T extends string>(
+  raw: string | null,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return raw != null && (allowed as readonly string[]).includes(raw)
+    ? (raw as T)
+    : fallback;
+}
 
 export default function Dashboard() {
-  const [granularity, setGranularity] = useState<Granularity>("day");
-  const [groupBy, setGroupBy] = useState<GroupBy>("total");
+  // Token-trend filters live in the URL (shareable links, rule "URL-Sync").
+  // Missing/invalid values fall back to the defaults WITHOUT rewriting the
+  // URL — only explicit user interaction writes params.
   const [searchParams, setSearchParams] = useSearchParams();
   const project = readProjectParam(searchParams);
   const day = searchParams.get(DAY_PARAM);
+  const granularity = parseEnumParam(
+    searchParams.get(GRAN_PARAM),
+    GRANULARITIES,
+    DEFAULT_GRANULARITY,
+  );
+  const groupBy = parseEnumParam(
+    searchParams.get(GROUP_PARAM),
+    GROUP_BYS,
+    DEFAULT_GROUP_BY,
+  );
 
   /** Set/clear the drill-down day while preserving all other query params. */
   const setDay = (d: string | null) => {
     const params = new URLSearchParams(searchParams);
     if (d) params.set(DAY_PARAM, d);
     else params.delete(DAY_PARAM);
+    setSearchParams(params);
+  };
+
+  /** Write a filter param while preserving all other query params. */
+  const setFilterParam = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams);
+    params.set(key, value);
     setSearchParams(params);
   };
 
@@ -99,31 +144,35 @@ export default function Dashboard() {
 
       {/* Keys include `project`: useApi keeps its fetcher in a ref and only
           refetches on mount, so a filter change must remount the consumers. */}
-      <SummaryKpis key={project ?? "all"} project={project} />
+      {/* Keys force a remount (useApi fetches on mount only) when the global
+          project filter changes. They MUST stay unique among siblings — three
+          components once shared key={project ?? "all"}, which made React
+          duplicate nodes on re-render (ghost charts / duplicated KPI row). */}
+      <SummaryKpis key={`summary|${project ?? "all"}`} project={project} />
 
       <TokenTrendChart
-        key={`${granularity}-${groupBy}-${project ?? "all"}`}
+        key={`trend|${granularity}-${groupBy}-${project ?? "all"}`}
         granularity={granularity}
         groupBy={groupBy}
         project={project}
-        onGranularity={setGranularity}
-        onGroupBy={setGroupBy}
+        onGranularity={(g) => setFilterParam(GRAN_PARAM, g)}
+        onGroupBy={(g) => setFilterParam(GROUP_PARAM, g)}
         onSelectDay={setDay}
       />
 
       <CostTrendChart
-        key={`${granularity}-${project ?? "all"}`}
+        key={`cost|${granularity}-${project ?? "all"}`}
         granularity={granularity}
         project={project}
       />
 
       <TokenShareChart
-        key={project ?? "all"}
+        key={`share|${project ?? "all"}`}
         project={project}
         onSelectDay={setDay}
       />
 
-      <HeatmapCard key={project ?? "all"} project={project} onSelectDay={setDay} />
+      <HeatmapCard key={`heatmap|${project ?? "all"}`} project={project} onSelectDay={setDay} />
     </div>
   );
 }
