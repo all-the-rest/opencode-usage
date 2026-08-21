@@ -154,6 +154,7 @@ export const i18n = {
     priceInput: "Input",
     priceCacheRead: "Cache-Read",
     priceOutput: "Output",
+    priceCacheWrite: "Cache-Write",
     pricePerM: "/ 1M Tokens",
     footerAvgPrice: "Dein Ø-Preis",
 
@@ -327,6 +328,7 @@ export const i18n = {
     priceInput: "Input",
     priceCacheRead: "Cache read",
     priceOutput: "Output",
+    priceCacheWrite: "Cache-Write",
     pricePerM: "/ 1M tokens",
     footerAvgPrice: "Your avg price",
 

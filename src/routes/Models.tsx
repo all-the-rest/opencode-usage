@@ -785,7 +785,11 @@ function ModelsPriceAnalysis({
     const withPrice = rows
       .map((r) => {
         const tokens =
-          r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
+          r.inputTokens +
+          r.outputTokens +
+          r.reasoningTokens +
+          r.cacheReadTokens +
+          r.cacheWriteTokens;
         const effective = tokens > 0 ? (r.cost / tokens) * 1e6 : 0;
         const cost = meta?.[r.providerId]?.models?.[r.modelId]?.cost as
           | ModelCost
@@ -793,12 +797,25 @@ function ModelsPriceAnalysis({
         const mix = {
           input: r.inputTokens,
           cacheRead: r.cacheReadTokens,
-          output: r.outputTokens + r.reasoningTokens,
+          output: r.outputTokens,
+          reasoning: r.reasoningTokens,
+          // Kein expliziter cache_write-Preis => Input-Preis (kein Aufpreis)
+          cacheWrite: r.cacheWriteTokens,
+        };
+        const rates = {
+          input: cost?.input ?? 0,
+          cacheRead: cost?.cache_read ?? 0,
+          // Reasoning zum Output-Satz, falls nicht explizit gelistet
+          output: cost?.output ?? 0,
+          reasoning: cost?.reasoning ?? cost?.output ?? 0,
+          cacheWrite: cost?.cache_write ?? cost?.input ?? 0,
         };
         const theo =
-          (mix.input * (cost?.input ?? 0) +
-            mix.cacheRead * (cost?.cache_read ?? 0) +
-            mix.output * (cost?.output ?? 0)) /
+          (mix.input * rates.input +
+            mix.cacheRead * rates.cacheRead +
+            mix.output * rates.output +
+            mix.reasoning * rates.reasoning +
+            mix.cacheWrite * rates.cacheWrite) /
           1e6;
         return { r, tokens, effective, cost, theo };
       })
@@ -853,6 +870,9 @@ function ModelsPriceAnalysis({
                         <div>
                           Out {formatRatio(pct(r.outputTokens + r.reasoningTokens, r))}
                         </div>
+                        {r.cacheWriteTokens > 0 && (
+                          <div>CW {formatRatio(pct(r.cacheWriteTokens, r))}</div>
+                        )}
                       </td>
                       <td className="text-right text-xs">
                         <div>{t("priceInput")}: {formatPricePerM(cost?.input)}</div>
@@ -862,6 +882,12 @@ function ModelsPriceAnalysis({
                         <div>
                           {t("priceOutput")}: {formatPricePerM(cost?.output)}
                         </div>
+                        {cost?.cache_write != null && (
+                          <div>
+                            {t("priceCacheWrite")}:{" "}
+                            {formatPricePerM(cost.cache_write)}
+                          </div>
+                        )}
                       </td>
                       <td className="text-right font-medium text-primary">
                         {formatCost(effective)}
@@ -907,7 +933,11 @@ function ModelsPriceAnalysis({
 
 function pct(part: number, r: ModelBreakdownRow): number {
   const sum =
-    r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
+    r.inputTokens +
+    r.outputTokens +
+    r.reasoningTokens +
+    r.cacheReadTokens +
+    r.cacheWriteTokens;
   return sum > 0 ? part / sum : 0;
 }
 
