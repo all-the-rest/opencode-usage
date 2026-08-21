@@ -103,6 +103,15 @@
         f) Footer: "Noch kein Datenstand · Fehler..." im filled-State war
            Meta-404-Bug (BEREITS GEFIXT, commit nach 3069694) -> via
            Re-Capture bestätigen, danach diesen Punkt entfernen
+- [ ] 22. Preis-Analyse (Models-Seite, Nutzerwunsch): Tabelle je Modell mit
+        Token-Mix (input/cache-read/output-%), Listenpreisen pro 1M Tokens
+        (models.dev Snapshot, USD/token * 1M), EFFEKTIVEM Preis
+        (= cost / alle Tokens, hervorgehoben) und optional theoretischem
+        Preis (Mix × Listenpreis); Gesamtzeile: gewichteter Ø-Preis über
+        alle Modelle = SUM(cost)/SUM(tokens) + Gesamt-Kosten/Tokens;
+        Sortierung nach effektivem Preis desc; Gratis-Modelle = $0.00
+        sichtbar; Plausibilitätstest: hy3 ~$0.27/1M, deepseek-v4-flash-free
+        $0.00
 - [ ] 19. Nutzer-Feedback: Volumen-Sicht für Modelle (hy3 fehlt):
         a) Models-Seite: ZWEI Top-10-Balkendiagramme als eigene Karten:
            "Top 10 nach Volumen" UND "Top 10 nach Kosten" (Nutzerwunsch:
