@@ -1,0 +1,43 @@
+{
+  "name": "opencode-usage",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "sync": "tsx scripts/extract.ts",
+    "watch": "tsx scripts/watch.ts",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx server/index.ts",
+    "start:prod": "NODE_ENV=production tsx server/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@opencode-ai/models": "^0.0.50",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.13.3",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "daisyui": "^5.7.20",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}
