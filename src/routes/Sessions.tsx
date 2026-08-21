@@ -433,7 +433,13 @@ function SessionList({
                       {t("colTitle")}
                       {arrow("title")}
                     </th>
-                    <th>{t("colDirectory")}</th>
+                    <th
+                      className="cursor-pointer select-none"
+                      onClick={() => onSortField("directory")}
+                    >
+                      {t("colDirectory")}
+                      {arrow("directory")}
+                    </th>
                     <th
                       className="cursor-pointer select-none text-right"
                       onClick={() => onSortField("msgCount")}
@@ -457,10 +463,10 @@ function SessionList({
                     </th>
                     <th
                       className="cursor-pointer select-none"
-                      onClick={() => onSortField("timeCreated")}
+                      onClick={() => onSortField("recent")}
                     >
                       {t("colDate")}
-                      {arrow("timeCreated")}
+                      {arrow("recent")}
                     </th>
                   </tr>
                 </thead>

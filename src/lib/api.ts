@@ -54,13 +54,13 @@ export function getProjects(signal?: AbortSignal): Promise<ProjectRow[]> {
 
 export type SessionSort =
   | "recent"
-  | "timeCreated"
-  | "timeUpdated"
+  | "created"
   | "cost"
+  | "tokens"
   | "msgCount"
   | "cacheHitRatio"
   | "title"
-  | "tokens";
+  | "directory";
 
 export interface SessionQuery {
   limit?: number;

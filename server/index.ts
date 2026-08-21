@@ -370,6 +370,24 @@ function clampInt(v: string | undefined, fallback: number, min: number, max: num
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * Fixed map from client sort key → safe SQL ORDER BY expression.
+ * Never built from user input via string interpolation — `orderCol` is always
+ * one of these literal fragments (or the `recent` default), so a bad `sort`
+ * value can only produce a harmless default, never SQL injection.
+ */
+const SESSION_SORT_COLUMNS: Record<string, string> = {
+  recent: "time_updated",
+  created: "time_created",
+  cost: "cost",
+  tokens: "(input_tokens + output_tokens + reasoning_tokens)",
+  msgCount: "msg_count",
+  cacheHitRatio:
+    "(cache_read / NULLIF(input_tokens + cache_read + cache_write, 0))",
+  title: "LOWER(COALESCE(title, ''))",
+  directory: "LOWER(directory)",
+};
+
 app.get("/api/stats/sessions", (c) =>
   handleApi(c, (db) => {
     const limit = clampInt(c.req.query("limit"), 50, 1, 500);
@@ -377,11 +395,7 @@ app.get("/api/stats/sessions", (c) =>
 
     const sortRaw = c.req.query("sort");
     const orderCol =
-      sortRaw === "tokens"
-        ? "(input_tokens + output_tokens + reasoning_tokens)"
-        : sortRaw === "recent"
-          ? "time_updated"
-          : "cost";
+      SESSION_SORT_COLUMNS[sortRaw ?? "recent"] ?? SESSION_SORT_COLUMNS.recent;
     const dirSql = c.req.query("dir") === "asc" ? "ASC" : "DESC";
 
     const rows = db
