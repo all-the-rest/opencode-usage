@@ -36,6 +36,7 @@ import type {
   MetaInfo,
   Granularity,
   GroupBy,
+  DayDetail,
 } from "../src/lib/types";
 
 const PORT = Number(process.env.PORT ?? 3712);
@@ -74,11 +75,46 @@ interface SummaryRow {
   sessionCount: number | null;
 }
 
+// --- Globaler Projekt-Filter (?project=<basename>) --------------------------
+// project ist der Basename eines Verzeichnisses; gematcht wird exakt oder als
+// Pfad-Suffix ("tracking" matcht auch ".../dev/tracking"). Hinweis: ?dir= ist
+// im sessions-Endpoint bereits die Sortierrichtung (asc/desc).
+function projectFilter(
+  project: string | undefined,
+): { sql: string; params: string[] } {
+  const d = project?.trim();
+  if (!d) return { sql: "", params: [] };
+  return {
+    sql: " AND (directory = ? OR directory LIKE '%/' || ?)",
+    params: [d, d],
+  };
+}
+
 app.get("/api/stats/summary", (c) =>
   handleApi(c, (db) => {
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) AS messageCount,
+    const { sql, params } = projectFilter(c.req.query("project"));
+    const row = (
+      sql
+        ? db
+            .prepare(
+              `SELECT COUNT(*) AS messageCount,
+                SUM(m.cost) AS totalCost,
+                SUM(m.tokens_input) AS inputTokens,
+                SUM(m.tokens_output) AS outputTokens,
+                SUM(m.tokens_reasoning) AS reasoningTokens,
+                SUM(m.cache_read) AS cacheReadTokens,
+                SUM(m.cache_write) AS cacheWriteTokens,
+                MIN(m.time_created) AS firstMessageAt,
+                MAX(m.time_created) AS lastMessageAt,
+                COUNT(DISTINCT m.session_id) AS sessionCount
+         FROM messages m
+         JOIN sessions_agg s ON s.session_id = m.session_id
+         WHERE 1=1${sql}`,
+            )
+            .get(...params)
+        : db
+            .prepare(
+              `SELECT COUNT(*) AS messageCount,
                 SUM(cost) AS totalCost,
                 SUM(tokens_input) AS inputTokens,
                 SUM(tokens_output) AS outputTokens,
@@ -89,8 +125,9 @@ app.get("/api/stats/summary", (c) =>
                 MAX(time_created) AS lastMessageAt,
                 COUNT(DISTINCT session_id) AS sessionCount
          FROM messages`,
-      )
-      .get() as SummaryRow | undefined;
+            )
+            .get()
+    ) as SummaryRow | undefined;
 
     const input = num(row?.inputTokens);
     const output = num(row?.outputTokens);
@@ -184,13 +221,15 @@ app.get("/api/stats/timeseries", (c) =>
   handleApi(c, (db) => {
     const granularity = validGranularity(c.req.query("granularity"));
     const groupBy = validGroupBy(c.req.query("groupBy"));
+    const { sql, params } = projectFilter(c.req.query("project"));
     const rows = db
       .prepare(
         `SELECT day, provider_id, model_id, msg_count, input_tokens,
                 output_tokens, reasoning_tokens, cache_read, cache_write, cost
-         FROM daily_agg`,
+         FROM daily_agg
+         WHERE 1=1${sql}`,
       )
-      .all() as DailyAggRow[];
+      .all(...params) as DailyAggRow[];
 
     const acc = new Map<string, TimeseriesPoint>();
     for (const r of rows) {
@@ -246,6 +285,7 @@ interface ModelAggRow {
 
 app.get("/api/stats/models", (c) =>
   handleApi(c, (db) => {
+    const { sql, params } = projectFilter(c.req.query("project"));
     const rows = db
       .prepare(
         `SELECT provider_id, model_id,
@@ -257,9 +297,10 @@ app.get("/api/stats/models", (c) =>
                 SUM(cache_write) AS cacheWriteTokens,
                 SUM(cost) AS cost
          FROM daily_agg
+         WHERE 1=1${sql}
          GROUP BY provider_id, model_id`,
       )
-      .all() as ModelAggRow[];
+      .all(...params) as ModelAggRow[];
 
     const result: ModelBreakdownRow[] = rows.map((r) => {
       const meta = resolveModelMeta(r.provider_id, r.model_id);
@@ -296,6 +337,7 @@ app.get("/api/stats/models", (c) =>
 // ---------------------------------------------------------------------------
 app.get("/api/stats/projects", (c) =>
   handleApi(c, (db) => {
+    const { sql, params } = projectFilter(c.req.query("project"));
     const rows = db
       .prepare(
         `SELECT directory,
@@ -309,10 +351,11 @@ app.get("/api/stats/projects", (c) =>
                 SUM(cost) AS cost,
                 MAX(time_updated) AS last_activity_at
          FROM sessions_agg
+         WHERE 1=1${sql}
          GROUP BY directory
          ORDER BY cost DESC`,
       )
-      .all() as Array<{
+      .all(...params) as Array<{
       directory: string;
       session_count: number;
       msg_count: number;
@@ -393,6 +436,7 @@ app.get("/api/stats/sessions", (c) =>
     const limit = clampInt(c.req.query("limit"), 50, 1, 500);
     const offset = clampInt(c.req.query("offset"), 0, 0, Number.MAX_SAFE_INTEGER);
 
+    const { sql, params } = projectFilter(c.req.query("project"));
     const sortRaw = c.req.query("sort");
     const orderCol =
       SESSION_SORT_COLUMNS[sortRaw ?? "recent"] ?? SESSION_SORT_COLUMNS.recent;
@@ -404,10 +448,11 @@ app.get("/api/stats/sessions", (c) =>
                 msg_count, input_tokens, output_tokens, reasoning_tokens,
                 cache_read, cache_write, cost, time_created, time_updated
          FROM sessions_agg
+         WHERE 1=1${sql}
          ORDER BY ${orderCol} ${dirSql}
          LIMIT ? OFFSET ?`,
       )
-      .all(limit, offset) as SessionAggRow[];
+      .all(...params, limit, offset) as SessionAggRow[];
 
     const result: SessionRow[] = rows.map((r) => ({
       sessionId: r.session_id,
@@ -497,14 +542,17 @@ app.get("/api/stats/cache-analysis", (c) =>
       1,
       Number.parseInt(c.req.query("minMessages") ?? "20", 10) || 20,
     );
+    const { sql: pSql, params: pParams } = projectFilter(
+      c.req.query("project"),
+    );
     const rows = db
       .prepare(
         `SELECT session_id, title, msg_count, input_tokens, output_tokens,
                 reasoning_tokens, cache_read, cache_write, cost
          FROM sessions_agg
-         WHERE msg_count >= ?`,
+         WHERE msg_count >= ?${pSql}`,
       )
-      .all(minMessages) as SessionMsgRow[];
+      .all(minMessages, ...pParams) as SessionMsgRow[];
 
     const points: CacheAnalysisPoint[] = rows.map((r) => ({
       sessionId: r.session_id,
@@ -552,9 +600,13 @@ interface HourlyAggRow {
 
 app.get("/api/stats/heatmap", (c) =>
   handleApi(c, (db) => {
+    const { sql, params } = projectFilter(c.req.query("project"));
     const rows = db
-      .prepare(`SELECT day, hour, msg_count, cost FROM hourly_agg`)
-      .all() as HourlyAggRow[];
+      .prepare(
+        `SELECT day, hour, msg_count, cost FROM hourly_agg
+         WHERE 1=1${sql}`,
+      )
+      .all(...params) as HourlyAggRow[];
     const result: HeatmapCell[] = rows.map((r) => ({
       day: r.day,
       hour: r.hour,
@@ -562,6 +614,205 @@ app.get("/api/stats/heatmap", (c) =>
       cost: r.cost,
     }));
     return c.json(result);
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// GET /api/stats/directories — Verzeichnisse für die globale Filterleiste
+// ---------------------------------------------------------------------------
+app.get("/api/stats/directories", (c) =>
+  handleApi(c, (db) => {
+    const rows = db
+      .prepare(
+        `SELECT directory,
+                SUM(msg_count) AS msg_count,
+                SUM(cost) AS cost
+         FROM sessions_agg
+         GROUP BY directory
+         ORDER BY msg_count DESC`,
+      )
+      .all() as Array<{ directory: string; msg_count: number; cost: number }>;
+    return c.json(
+      rows.map((r) => ({
+        directory: r.directory,
+        basename: basenameOf(r.directory),
+        msgCount: r.msg_count,
+        cost: r.cost,
+      })),
+    );
+  }),
+);
+
+function basenameOf(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/stats/day/:date?project= — Tages-Detail (DayDetail-Contract)
+// ---------------------------------------------------------------------------
+interface DayAggRow {
+  day: string;
+  directory: string;
+  provider_id: string;
+  model_id: string;
+  msg_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read: number;
+  cache_write: number;
+  cost: number;
+}
+
+app.get("/api/stats/day/:date", (c) =>
+  handleApi(c, (db) => {
+    const date = c.req.param("date");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return c.json({ error: "invalid date, expected YYYY-MM-DD" }, 400);
+    }
+    const { sql, params } = projectFilter(c.req.query("project"));
+
+    // Totals + byModel + byProject aus daily_agg
+    const dayRows = db
+      .prepare(
+        `SELECT day, directory, provider_id, model_id, msg_count,
+                input_tokens, output_tokens, reasoning_tokens,
+                cache_read, cache_write, cost
+         FROM daily_agg
+         WHERE day = ?${sql}`,
+      )
+      .all(date, ...params) as DayAggRow[];
+
+    let msgCount = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let reasoningTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
+    let cost = 0;
+    const byModelMap = new Map<
+      string,
+      {
+        providerId: string;
+        modelId: string;
+        msgCount: number;
+        totalTokens: number;
+        cost: number;
+      }
+    >();
+    const byProjectMap = new Map<
+      string,
+      {
+        directory: string;
+        msgCount: number;
+        totalTokens: number;
+        cost: number;
+      }
+    >();
+    for (const r of dayRows) {
+      msgCount += r.msg_count;
+      inputTokens += r.input_tokens;
+      outputTokens += r.output_tokens;
+      reasoningTokens += r.reasoning_tokens;
+      cacheReadTokens += r.cache_read;
+      cacheWriteTokens += r.cache_write;
+      cost += r.cost;
+
+      const mk = `${r.provider_id}\u0000${r.model_id}`;
+      const mEntry = byModelMap.get(mk) ?? {
+        providerId: r.provider_id,
+        modelId: r.model_id,
+        msgCount: 0,
+        totalTokens: 0,
+        cost: 0,
+      };
+      mEntry.msgCount += r.msg_count;
+      mEntry.totalTokens +=
+        r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      mEntry.cost += r.cost;
+      byModelMap.set(mk, mEntry);
+
+      const pEntry = byProjectMap.get(r.directory) ?? {
+        directory: r.directory,
+        msgCount: 0,
+        totalTokens: 0,
+        cost: 0,
+      };
+      pEntry.msgCount += r.msg_count;
+      pEntry.totalTokens +=
+        r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      pEntry.cost += r.cost;
+      byProjectMap.set(r.directory, pEntry);
+    }
+
+    // Stundenverlauf aus hourly_agg
+    const hourRows = db
+      .prepare(
+        `SELECT hour, SUM(msg_count) AS msg_count
+         FROM hourly_agg
+         WHERE day = ?${sql}
+         GROUP BY hour`,
+      )
+      .all(date, ...params) as Array<{ hour: number; msg_count: number }>;
+    const byHour = Array.from({ length: 24 }, (_, h) => ({
+      hour: h,
+      msgCount: num(hourRows.find((x) => x.hour === h)?.msg_count),
+    }));
+
+    // Aktive Sessions des Tages (time_updated im Tagesfenster)
+    const sessionRows = db
+      .prepare(
+        `SELECT session_id, project_id, directory, title, model, agent,
+                msg_count, input_tokens, output_tokens, reasoning_tokens,
+                cache_read, cache_write, cost, time_created, time_updated
+         FROM sessions_agg
+         WHERE date(time_updated / 1000, 'unixepoch', 'localtime') = ?${sql}
+         ORDER BY time_updated DESC`,
+      )
+      .all(date, ...params) as SessionAggRow[];
+
+    const sessions: SessionRow[] = sessionRows.map((r) => ({
+      sessionId: r.session_id,
+      projectId: r.project_id,
+      directory: r.directory,
+      title: r.title,
+      modelId: r.model,
+      agent: r.agent,
+      msgCount: r.msg_count,
+      inputTokens: r.input_tokens,
+      outputTokens: r.output_tokens,
+      reasoningTokens: r.reasoning_tokens,
+      cacheReadTokens: r.cache_read,
+      cacheWriteTokens: r.cache_write,
+      cost: r.cost,
+      cacheHitRatio: cacheHitRatio(
+        r.input_tokens,
+        r.cache_read,
+        r.cache_write,
+      ),
+      timeCreated: r.time_created,
+      timeUpdated: r.time_updated,
+    }));
+
+    const detail: DayDetail = {
+      date,
+      msgCount,
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      cost,
+      sessionCount: sessions.length,
+      byHour,
+      byModel: [...byModelMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+      byProject: [...byProjectMap.values()].sort(
+        (a, b) => b.totalTokens - a.totalTokens,
+      ),
+      sessions,
+    };
+    return c.json(detail);
   }),
 );
 

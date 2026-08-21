@@ -27,7 +27,10 @@ import {
 } from "recharts";
 import { Models as ModelsClient } from "@opencode-ai/models";
 import type { ModelCost, ProviderMap } from "@opencode-ai/models";
-import { detectManufacturer } from "../lib/manufacturers";
+import {
+  detectManufacturer,
+  OTHER_MANUFACTURER,
+} from "../lib/manufacturers";
 import { getModelBreakdown, usePoll } from "../lib/api";
 import type { ModelBreakdownRow } from "../lib/types";
 import {
@@ -306,7 +309,7 @@ function ModelFilters({
               <option value="">{t("filterAll")}</option>
               {manufacturers.map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {manufacturerLabel(m)}
                 </option>
               ))}
             </select>
@@ -566,8 +569,7 @@ function DonutChart({
               ? resolveRow(r, meta).providerName
               : groupKey === "manufacturer"
                 ? detectManufacturer(r.modelId)
-                : resolveRow(r, meta).family ?? t("seriesOther");
-          const total =
+                : resolveRow(r, meta).family ?? t("seriesOther");          const total =
             r.inputTokens +
             r.outputTokens +
             r.reasoningTokens +
@@ -575,7 +577,11 @@ function DonutChart({
           totals.set(key, (totals.get(key) ?? 0) + total);
         }
         const data = [...totals.entries()]
-          .map(([name, value]) => ({ name, value }))
+          .map(([k, value]) => ({
+            name:
+              groupKey === "manufacturer" ? manufacturerLabel(k) : k,
+            value,
+          }))
           .sort((a, b) => b.value - a.value)
           .slice(0, 10);
         const sum = data.reduce((acc, d) => acc + d.value, 0) || 1;
@@ -728,7 +734,7 @@ function ModelTable({
                         <td>{info.providerName}</td>
                         <td>{info.modelName}</td>
                         <td>{info.family ?? "—"}</td>
-                        <td>{detectManufacturer(r.modelId)}</td>
+                        <td>{manufacturerLabel(detectManufacturer(r.modelId))}</td>
                         <td className="text-right font-medium">
                           {formatTokens(
                             r.inputTokens + r.outputTokens + r.reasoningTokens,
@@ -995,8 +1001,12 @@ function ModelsPriceAnalysis({
   );
 }
 
-function pct(part: number, r: ModelBreakdownRow): number {
-  const sum =
+/** Lokalisierter Hersteller-Name: "Other" → i18n (seriesOther), Rest kanonisch. */
+function manufacturerLabel(key: string): string {
+  return key === OTHER_MANUFACTURER ? t("seriesOther") : key;
+}
+
+function pct(part: number, r: ModelBreakdownRow): number {  const sum =
     r.inputTokens +
     r.outputTokens +
     r.reasoningTokens +
