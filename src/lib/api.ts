@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
   CacheAnalysis,
+  DayDetail,
   Granularity,
   GroupBy,
   HeatmapCell,
@@ -31,25 +32,56 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 // --- Endpoint functions for every contract type in ./types.ts ---
 
-export function getSummary(signal?: AbortSignal): Promise<Summary> {
-  return request<Summary>("/api/stats/summary", signal);
+/** Optionale Filter-Optionen (globaler Projekt-Filter). */
+export interface FetchOpts {
+  /** Basename eines Projekt-Verzeichnisses (serverseitiger Filter). */
+  project?: string;
+}
+
+function withProject(
+  path: string,
+  opts: FetchOpts | undefined,
+): string {
+  if (!opts?.project) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}project=${encodeURIComponent(opts.project)}`;
+}
+
+export function getSummary(
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<Summary> {
+  return request<Summary>(withProject("/api/stats/summary", opts), signal);
 }
 
 export function getTimeseries(
   granularity: Granularity,
   groupBy: GroupBy,
   signal?: AbortSignal,
+  opts?: FetchOpts,
 ): Promise<TimeseriesResponse> {
   const params = new URLSearchParams({ granularity, groupBy });
-  return request<TimeseriesResponse>(`/api/stats/timeseries?${params}`, signal);
+  return request<TimeseriesResponse>(
+    withProject(`/api/stats/timeseries?${params}`, opts),
+    signal,
+  );
 }
 
-export function getModelBreakdown(signal?: AbortSignal): Promise<ModelBreakdownRow[]> {
-  return request<ModelBreakdownRow[]>("/api/stats/models", signal);
+export function getModelBreakdown(
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<ModelBreakdownRow[]> {
+  return request<ModelBreakdownRow[]>(
+    withProject("/api/stats/models", opts),
+    signal,
+  );
 }
 
-export function getProjects(signal?: AbortSignal): Promise<ProjectRow[]> {
-  return request<ProjectRow[]>("/api/stats/projects", signal);
+export function getProjects(
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<ProjectRow[]> {
+  return request<ProjectRow[]>(withProject("/api/stats/projects", opts), signal);
 }
 
 export type SessionSort =
@@ -67,6 +99,7 @@ export interface SessionQuery {
   offset?: number;
   sort?: SessionSort;
   dir?: "asc" | "desc";
+  project?: string;
 }
 
 export function getSessions(
@@ -78,6 +111,7 @@ export function getSessions(
   if (query.offset != null) params.set("offset", String(query.offset));
   if (query.sort != null) params.set("sort", query.sort);
   if (query.dir != null) params.set("dir", query.dir);
+  if (query.project) params.set("project", query.project);
   const qs = params.toString();
   return request<SessionRow[]>(`/api/stats/sessions${qs ? `?${qs}` : ""}`, signal);
 }
@@ -85,21 +119,51 @@ export function getSessions(
 export function getCacheAnalysis(
   minMessages = 20,
   signal?: AbortSignal,
+  opts?: FetchOpts,
 ): Promise<CacheAnalysis> {
   const params = new URLSearchParams();
   params.set("minMessages", String(minMessages));
   return request<CacheAnalysis>(
-    `/api/stats/cache-analysis?${params}`,
+    withProject(`/api/stats/cache-analysis?${params}`, opts),
     signal,
   );
 }
 
-export function getHeatmap(signal?: AbortSignal): Promise<HeatmapCell[]> {
-  return request<HeatmapCell[]>("/api/stats/heatmap", signal);
+export function getHeatmap(
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<HeatmapCell[]> {
+  return request<HeatmapCell[]>(withProject("/api/stats/heatmap", opts), signal);
 }
 
 export function getMeta(signal?: AbortSignal): Promise<MetaInfo> {
   return request<MetaInfo>("/api/stats/meta", signal);
+}
+
+// --- Globales Drill-Down ---
+
+export interface DirectoryRow {
+  directory: string;
+  basename: string;
+  msgCount: number;
+  cost: number;
+}
+
+/** Verzeichnis-Liste für die globale Projekt-Filterleiste. */
+export function getDirectories(signal?: AbortSignal): Promise<DirectoryRow[]> {
+  return request<DirectoryRow[]>("/api/stats/directories", signal);
+}
+
+/** Tages-Detail für ?day=YYYY-MM-DD. */
+export function getDayDetail(
+  date: string,
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<DayDetail> {
+  return request<DayDetail>(
+    withProject(`/api/stats/day/${encodeURIComponent(date)}`, opts),
+    signal,
+  );
 }
 
 // --- React hooks ---
