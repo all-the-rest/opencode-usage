@@ -568,21 +568,25 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
     count <= 0 ? 0 : 0.15 + 0.85 * (count / (max || 1));
 
   // CSS grid: a fixed label column + one flexible column per week so the
-  // heatmap fills the full card width; cells stay square via aspect-square.
+  // heatmap fills the full card width. Fixed total height — rows share the
+  // space (no vertical scrolling).
   return (
-    <div className="max-h-[60vh] overflow-auto">
+    <div className="h-72">
       <div
-        className="grid gap-[3px]"
-        style={{ gridTemplateColumns: `2.5rem repeat(${n}, minmax(0, 1fr))` }}
+        className="grid h-full gap-[3px]"
+        style={{
+          gridTemplateColumns: `2.5rem repeat(${n}, minmax(0, 1fr))`,
+          gridTemplateRows: `1.25rem repeat(24, minmax(0, 1fr))`,
+        }}
       >
-        {/* Corner + week headers (sticky top) */}
-        <div className="sticky top-0 left-0 z-20 bg-base-200" />
+        {/* Corner + week headers */}
+        <div className="bg-base-200" />
         {visible.map((wk) => {
           const label = formatDate(new Date(wk + "T00:00:00").getTime(), lang);
           return (
             <div
               key={wk}
-              className="sticky top-0 z-10 truncate bg-base-200 text-center text-[10px] text-base-content/50"
+              className="truncate bg-base-200 text-center text-[10px] leading-[1.25rem] text-base-content/50"
               title={label}
             >
               {shortDay(wk)}
@@ -590,10 +594,10 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
           );
         })}
 
-        {/* 24 hour rows (label column sticky left) */}
+        {/* 24 hour rows (label column) */}
         {Array.from({ length: 24 }, (_, h) => (
           <Fragment key={h}>
-            <div className="sticky left-0 z-10 flex items-center justify-end bg-base-200 pr-1 text-[10px] text-base-content/50">
+            <div className="flex items-center justify-end bg-base-200 pr-1 text-[10px] text-base-content/50">
               {h % 6 === 0 ? h : ""}
             </div>
             {visible.map((wk) => {
@@ -612,7 +616,7 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
               return (
                 <div
                   key={wk}
-                  className="aspect-square w-full rounded-[2px]"
+                  className="w-full rounded-[2px]"
                   style={{ backgroundColor: bg }}
                   title={`${label} · ${t("heatmapHour", { hour: h })} · ${t(
                     "heatmapCount",
