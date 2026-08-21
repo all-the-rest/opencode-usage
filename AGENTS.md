@@ -2,8 +2,10 @@
 
 ## Zweck
 Lokales Single-User-Dashboard für OpenCode-Token-/Kostenverbrauch.
-Datenquelle: `~/.local/share/opencode/opencode.db` (SQLite, NUR read-only
-öffnen: `file:...?mode=ro`). Analyse-DB: `data/stats.db` (better-sqlite3).
+Datenquelle: `~/.local/share/opencode/opencode.db` (SQLite, IMMER strikt
+read-only öffnen). better-sqlite3 v13 unterstützt den `file:?mode=ro`-URI
+hier nicht — verwende `new Database(path, { fileMustExist: true, readonly: true })`.
+Analyse-DB: `data/stats.db` (better-sqlite3).
 
 ## Konventionen
 - pnpm, Node >= 22, TypeScript strict (`noUncheckedIndexedAccess` an).
