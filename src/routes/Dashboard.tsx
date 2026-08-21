@@ -1,15 +1,22 @@
 /**
  * Dashboard ("/")
+ *  - Day-detail drill-down section (URL param ?day=YYYY-MM-DD) at the top
  *  - KPI row from getSummary()
- *  - Stacked token-trend AreaChart from getTimeseries() (granularity + groupBy switches)
+ *  - Stacked token-trend BarChart from getTimeseries() (granularity + groupBy
+ *    switches; clicking a bar drills into that day/period)
  *  - Cost-trend LineChart from getTimeseries()
- *  - Activity heatmap from getHeatmap() (rows = hours 0-23, columns = weeks)
+ *  - Token-share AreaChart (clicking drills into that day)
+ *  - Activity heatmap from getHeatmap() (rows = hours 0-23, columns = weeks;
+ *    clicking a cell drills into its busiest day)
  *
+ * All fetchers forward the global project filter (URL param ?project) as
+ * FetchOpts; consumers are remounted via keys when the filter changes.
  * All data hooks use usePoll (60s auto-refresh) and surface loading / error /
  * retry states through the shared components.
  */
 
 import { Fragment, useState } from "react";
+import { useSearchParams } from "react-router";
 import {
   Area,
   AreaChart,
@@ -44,8 +51,10 @@ import {
 import { t, useLang, type Lang } from "../lib/i18n";
 import { AsyncState, EmptyState, ErrorState, Spinner } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
+import DayDetailSection from "../components/DayDetailSection";
 import { KpiCard } from "../components/KpiCard";
 import { paletteColor } from "../components/colors";
+import { readProjectParam } from "../components/ProjectFilterBar";
 
 const TOKEN_FIELDS = [
   { field: "inputTokens", key: "input", labelKey: "tokInput" },
@@ -56,35 +65,71 @@ const TOKEN_FIELDS = [
 
 type Row = Record<string, number | string>;
 
+/** URL param holding the drill-down day ("YYYY-MM-DD"). */
+const DAY_PARAM = "day";
+
 export default function Dashboard() {
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [groupBy, setGroupBy] = useState<GroupBy>("total");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const project = readProjectParam(searchParams);
+  const day = searchParams.get(DAY_PARAM);
+
+  /** Set/clear the drill-down day while preserving all other query params. */
+  const setDay = (d: string | null) => {
+    const params = new URLSearchParams(searchParams);
+    if (d) params.set(DAY_PARAM, d);
+    else params.delete(DAY_PARAM);
+    setSearchParams(params);
+  };
 
   return (
     <div className="space-y-6">
+      {day && (
+        <DayDetailSection
+          // Remount on date/project change: usePoll only fetches on mount.
+          key={`${day}|${project ?? ""}`}
+          date={day}
+          project={project}
+          onClose={() => setDay(null)}
+        />
+      )}
+
       <h1 className="text-3xl font-bold">{t("routeDashboard")}</h1>
 
-      <SummaryKpis />
+      {/* Keys include `project`: useApi keeps its fetcher in a ref and only
+          refetches on mount, so a filter change must remount the consumers. */}
+      <SummaryKpis key={project ?? "all"} project={project} />
 
       <TokenTrendChart
-        key={`${granularity}-${groupBy}`}
+        key={`${granularity}-${groupBy}-${project ?? "all"}`}
         granularity={granularity}
         groupBy={groupBy}
+        project={project}
         onGranularity={setGranularity}
         onGroupBy={setGroupBy}
+        onSelectDay={setDay}
       />
 
-      <CostTrendChart key={granularity} granularity={granularity} />
+      <CostTrendChart
+        key={`${granularity}-${project ?? "all"}`}
+        granularity={granularity}
+        project={project}
+      />
 
-      <TokenShareChart />
+      <TokenShareChart
+        key={project ?? "all"}
+        project={project}
+        onSelectDay={setDay}
+      />
 
-      <HeatmapCard />
+      <HeatmapCard key={project ?? "all"} project={project} onSelectDay={setDay} />
     </div>
   );
 }
 
-function SummaryKpis() {
-  const summary = usePoll(getSummary);
+function SummaryKpis({ project }: { project?: string }) {
+  const summary = usePoll((signal) => getSummary(signal, { project }));
   const lang = useLang();
 
   if (summary.loading && !summary.data) return <Spinner />;
@@ -238,15 +283,21 @@ function buildTokenRows(
 function TokenTrendChart({
   granularity,
   groupBy,
+  project,
   onGranularity,
   onGroupBy,
+  onSelectDay,
 }: {
   granularity: Granularity;
   groupBy: GroupBy;
+  project?: string;
   onGranularity: (g: Granularity) => void;
   onGroupBy: (g: GroupBy) => void;
+  onSelectDay: (day: string) => void;
 }) {
-  const api = usePoll((signal) => getTimeseries(granularity, groupBy, signal));
+  const api = usePoll((signal) =>
+    getTimeseries(granularity, groupBy, signal, { project }),
+  );
   const tickFmt = (day: string) =>
     granularity === "day" ? shortDay(day) : shortMonth(day);
 
@@ -269,7 +320,14 @@ function TokenTrendChart({
           const { rows, series } = buildTokenRows(pts, groupBy);
           return (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              {/* Clicking a bar drills down into that day. For week/month
+                  granularity the payload's `day` is the period's first day,
+                  which is exactly the drill-down target we want. */}
+              <BarChart
+                data={rows}
+                margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                className="cursor-pointer"
+              >
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
               <XAxis
                 dataKey="day"
@@ -291,6 +349,10 @@ function TokenTrendChart({
                   name={s.label}
                   stackId="tokens"
                   fill={paletteColor(i)}
+                  onClick={(data: any) => {
+                    const d: unknown = data?.payload?.day;
+                    if (typeof d === "string") onSelectDay(d);
+                  }}
                 />
               ))}
               </BarChart>
@@ -326,8 +388,16 @@ function TokenTrendTooltip({ active, payload, label }: any) {
   );
 }
 
-function CostTrendChart({ granularity }: { granularity: Granularity }) {
-  const api = usePoll((signal) => getTimeseries(granularity, "total", signal));
+function CostTrendChart({
+  granularity,
+  project,
+}: {
+  granularity: Granularity;
+  project?: string;
+}) {
+  const api = usePoll((signal) =>
+    getTimeseries(granularity, "total", signal, { project }),
+  );
   const tickFmt = (day: string) =>
     granularity === "day" ? shortDay(day) : shortMonth(day);
 
@@ -392,8 +462,16 @@ const SHARE_CATS = [
 
 type ShareRow = Record<string, number | string>;
 
-function TokenShareChart() {
-  const api = usePoll((signal) => getTimeseries("day", "total", signal));
+function TokenShareChart({
+  project,
+  onSelectDay,
+}: {
+  project?: string;
+  onSelectDay: (day: string) => void;
+}) {
+  const api = usePoll((signal) =>
+    getTimeseries("day", "total", signal, { project }),
+  );
 
   // Aggregate per day (groupBy="total" -> one point per day) and normalize the
   // four categories to a 0-100% share; keep absolute values for the tooltip.
@@ -436,6 +514,7 @@ function TokenShareChart() {
               <AreaChart
                 data={rows}
                 margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                className="cursor-pointer"
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -465,6 +544,10 @@ function TokenShareChart() {
                     fill={c.color}
                     stroke={c.color}
                     fillOpacity={0.7}
+                    onClick={(data: any) => {
+                      const d: unknown = data?.payload?.day;
+                      if (typeof d === "string") onSelectDay(d);
+                    }}
                   />
                 ))}
               </AreaChart>
@@ -519,8 +602,14 @@ function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function HeatmapCard() {
-  const api = usePoll(getHeatmap);
+function HeatmapCard({
+  project,
+  onSelectDay,
+}: {
+  project?: string;
+  onSelectDay: (day: string) => void;
+}) {
+  const api = usePoll((signal) => getHeatmap(signal, { project }));
   const lang = useLang();
 
   return (
@@ -534,7 +623,9 @@ function HeatmapCard() {
           {(() => {
             const cells = api.data ?? [];
             if (cells.length === 0) return <EmptyState />;
-            return <HeatmapGrid cells={cells} lang={lang} />;
+            return (
+              <HeatmapGrid cells={cells} lang={lang} onSelectDay={onSelectDay} />
+            );
           })()}
         </AsyncState>
       </div>
@@ -542,9 +633,25 @@ function HeatmapCard() {
   );
 }
 
-function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
-  // Aggregate by (week, hour)
-  const weekMap = new Map<string, Map<number, number>>();
+/** Aggregated (week, hour) bucket: total messages + its busiest day. */
+interface HourBucket {
+  total: number;
+  peakDay: string;
+  peak: number; // msgCount of the busiest day in this bucket
+}
+
+function HeatmapGrid({
+  cells,
+  lang,
+  onSelectDay,
+}: {
+  cells: HeatmapCell[];
+  lang: Lang;
+  onSelectDay: (day: string) => void;
+}) {
+  // Aggregate by (week, hour). A bucket spans up to 7 days, so clicking it
+  // drills down into its busiest day (highest per-day msgCount).
+  const weekMap = new Map<string, Map<number, HourBucket>>();
   let max = 0;
   for (const c of cells) {
     const monday = mondayOf(new Date(c.day + "T00:00:00"));
@@ -554,9 +661,14 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
       hours = new Map();
       weekMap.set(wk, hours);
     }
-    const cur = (hours.get(c.hour) ?? 0) + c.msgCount;
-    hours.set(c.hour, cur);
-    if (cur > max) max = cur;
+    const prev = hours.get(c.hour);
+    const total = (prev?.total ?? 0) + c.msgCount;
+    const bucket: HourBucket =
+      prev == null || c.msgCount > prev.peak
+        ? { total, peakDay: c.day, peak: c.msgCount }
+        : { total, peakDay: prev.peakDay, peak: prev.peak };
+    hours.set(c.hour, bucket);
+    if (total > max) max = total;
   }
 
   const weeks = [...weekMap.keys()].sort();
@@ -601,7 +713,8 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
               {h % 6 === 0 ? h : ""}
             </div>
             {visible.map((wk) => {
-              const count = weekMap.get(wk)!.get(h) ?? 0;
+              const bucket = weekMap.get(wk)?.get(h);
+              const count = bucket?.total ?? 0;
               const pct = intensity(count);
               const bg =
                 count > 0
@@ -609,19 +722,30 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
                       pct * 100,
                     )}%, transparent)`
                   : "var(--color-base-300)";
+              // Tooltip shows the drill-down target (busiest day of the week).
               const label = formatDate(
-                new Date(wk + "T00:00:00").getTime(),
+                new Date((bucket?.peakDay ?? wk) + "T00:00:00").getTime(),
                 lang,
               );
               return (
                 <div
                   key={wk}
-                  className="w-full rounded-[2px]"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${label} · ${t("heatmapHour", { hour: h })}`}
+                  className="w-full cursor-pointer rounded-[2px] transition-[box-shadow] hover:ring-2 hover:ring-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   style={{ backgroundColor: bg }}
                   title={`${label} · ${t("heatmapHour", { hour: h })} · ${t(
                     "heatmapCount",
                     { count: count },
                   )}`}
+                  onClick={() => bucket && onSelectDay(bucket.peakDay)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && bucket) {
+                      e.preventDefault();
+                      onSelectDay(bucket.peakDay);
+                    }
+                  }}
                 />
               );
             })}

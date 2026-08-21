@@ -1,13 +1,15 @@
 /**
- * App shell: daisyUI navbar (with language switcher) + footer showing the
- * last-sync time (polled from /api/meta every 60s). Route content is rendered
- * through <Outlet /> inside a <Suspense> so lazy routes show a loading state.
+ * App shell: daisyUI navbar (with language switcher) + global project filter
+ * bar + footer showing the last-sync time (polled from /api/meta every 60s).
+ * Route content is rendered through <Outlet /> inside a <Suspense> so lazy
+ * routes show a loading state.
  */
 
 import { Suspense } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 import { getMeta, usePoll } from "../lib/api";
 import { setLang, t, useLang, type Lang } from "../lib/i18n";
+import ProjectFilterBar from "./ProjectFilterBar";
 
 const NAV_ITEMS: { to: string; key: Parameters<typeof t>[0]; end?: boolean }[] = [
   { to: "/", key: "navDashboard", end: true },
@@ -150,6 +152,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex flex-col bg-base-100">
       <Navbar />
+      <ProjectFilterBar />
       <main className="flex-1 container mx-auto p-4">
         <Suspense fallback={<RouteFallback />}>
           <Outlet />
