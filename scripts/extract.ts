@@ -202,14 +202,17 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
       if (!Number.isFinite(lastSync)) lastSync = 0;
     }
 
-    // --- read source (STRICT read-only) ---
+    // --- read source (STRICT read-only): v2 schema (session_message only) ---
+    // The legacy `message` table was fully migrated into `session_message`
+    // (FK -> session_v2). The 31 ids remaining solely in `message` are
+    // migration artifacts (a stale client left open) and are out of scope.
     const source = new Database(SOURCE_DB, { fileMustExist: true, readonly: true });
     try {
       const selectMsgs = source.prepare(`
         SELECT id, session_id, time_created, data
-        FROM message
+        FROM session_message
         WHERE time_created >= ?
-          AND json_extract(data, '$.role') = 'assistant'
+          AND type = 'assistant'
           AND json_extract(data, '$.tokens') IS NOT NULL
         ORDER BY time_created ASC
       `);
@@ -227,15 +230,17 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
         } catch {
           continue;
         }
-        if (data.role !== 'assistant' || !data.tokens) continue;
+        if (!data.tokens) continue;
         const t = data.tokens;
         const cache = t.cache ?? {};
+        // v2 nests model under data.model (data.model.providerID / data.model.id)
+        const model = data.model ?? {};
         items.push({
           message_id: r.id,
           session_id: r.session_id,
           time_created: r.time_created,
-          provider_id: data.providerID ?? '',
-          model_id: data.modelID ?? '',
+          provider_id: model.providerID ?? '',
+          model_id: model.id ?? '',
           cost: typeof data.cost === 'number' ? data.cost : 0,
           tokens_input: t.input ?? 0,
           tokens_output: t.output ?? 0,
