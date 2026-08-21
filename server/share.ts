@@ -260,7 +260,9 @@ export function getShareData(
   const inputTokens = num(kpiRow?.inputTokens);
   const outputTokens = num(kpiRow?.outputTokens);
   const reasoningTokens = num(kpiRow?.reasoningTokens);
-  const totalTokens = inputTokens + outputTokens + reasoningTokens;
+  // Menschliche Entscheidung (2026-08-21): Token-Totale inkl. Cache Read.
+  const totalTokens =
+    inputTokens + outputTokens + reasoningTokens + num(kpiRow?.cacheRead);
 
   // --- Top-Projekte im Fenster (nur bei projects !== "none") ---
   let topProjects: ShareProject[] = [];

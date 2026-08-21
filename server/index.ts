@@ -182,7 +182,9 @@ app.get("/api/stats/summary", (c) =>
     const cacheWrite = num(row?.cacheWriteTokens);
 
     const summary: Summary = {
-      totalTokens: input + output + reasoning,
+      // Menschliche Entscheidung (2026-08-21): Gesamt-Tokens inkl. Cache Read,
+      // konsistent mit Token-Zeitverlauf/-Tooltip.
+      totalTokens: input + output + reasoning + cacheRead,
       inputTokens: input,
       outputTokens: output,
       reasoningTokens: reasoning,
@@ -629,7 +631,8 @@ app.get("/api/stats/cache-analysis", (c) =>
       title: r.title,
       msgCount: r.msg_count,
       cacheHitRatio: cacheHitRatio(r.input_tokens, r.cache_read, r.cache_write),
-      totalTokens: r.input_tokens + r.output_tokens + r.reasoning_tokens,
+      totalTokens:
+        r.input_tokens + r.output_tokens + r.reasoning_tokens + r.cache_read,
       cost: r.cost,
     }));
 
@@ -791,7 +794,9 @@ app.get("/api/stats/day/:date", (c) =>
         cost: 0,
       };
       mEntry.msgCount += r.msg_count;
-      mEntry.totalTokens += r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      // Menschliche Entscheidung (2026-08-21): Token-Totale inkl. Cache Read.
+      mEntry.totalTokens +=
+        r.input_tokens + r.output_tokens + r.reasoning_tokens + r.cache_read;
       mEntry.cost += r.cost;
       byModelMap.set(mk, mEntry);
 
@@ -802,7 +807,9 @@ app.get("/api/stats/day/:date", (c) =>
         cost: 0,
       };
       pEntry.msgCount += r.msg_count;
-      pEntry.totalTokens += r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      // Menschliche Entscheidung (2026-08-21): Token-Totale inkl. Cache Read.
+      pEntry.totalTokens +=
+        r.input_tokens + r.output_tokens + r.reasoning_tokens + r.cache_read;
       pEntry.cost += r.cost;
       byProjectMap.set(r.directory, pEntry);
     }

@@ -59,10 +59,25 @@ import { readProjectParam } from "../components/ProjectFilterBar";
 
 const TOKEN_FIELDS = [
   { field: "inputTokens", key: "input", labelKey: "tokInput" },
-  { field: "outputTokens", key: "output", labelKey: "tokOutput" },
-  { field: "reasoningTokens", key: "reasoning", labelKey: "tokReasoning" },
+  { field: "outputTokens", key: "output", labelKey: "tokOutputIncl" },
   { field: "cacheReadTokens", key: "cacheRead", labelKey: "tokCacheRead" },
 ] as const;
+
+/**
+ * Menschliche Entscheidung (2026-08-21): Reasoning wird zu Output kombiniert
+ * (ein Segment), Cache Read zählt in ALLE Totale — KPI „Gesamt-Tokens",
+ * Stapel-Totale und Gruppierungs-Ranking verwenden dieselbe Definition.
+ * Die Timeseries liefert die Felder getrennt → hier einmalig falten.
+ */
+function foldReasoningIntoOutput(
+  points: TimeseriesPoint[],
+): TimeseriesPoint[] {
+  return points.map((p) => ({
+    ...p,
+    outputTokens: p.outputTokens + p.reasoningTokens,
+    reasoningTokens: 0,
+  }));
+}
 
 type Row = Record<string, number | string>;
 
@@ -560,9 +575,10 @@ function TokenTrendChart({
     >
       <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
         {(() => {
-          const pts = api.data?.points ?? [];
+          const pts = foldReasoningIntoOutput(api.data?.points ?? []);
           if (pts.length === 0) return <EmptyState />;
           const { rows, series } = buildTokenRows(pts, groupBy);
+          const grouped = groupBy !== "total";
           return (
             <ResponsiveContainer width="100%" height="100%">
               {/* Clicking a bar drills down into that day. For week/month
@@ -585,15 +601,27 @@ function TokenTrendChart({
                 fontSize={11}
                 width={48}
               />
-              <Tooltip content={<TokenTrendTooltip fmtLabel={tickFmt} />} cursor={{ fill: "var(--color-base-content)", opacity: 0.08 }} />
-              <Legend wrapperStyle={{ flexWrap: "wrap" }} />
-              {series.map((s, i) => (
+              <Tooltip content={<TokenTrendTooltip fmtLabel={tickFmt} sortDesc={grouped} />} cursor={{ fill: "var(--color-base-content)", opacity: 0.08 }} />
+              {/* Legende größter → kleinster (nur bei Gruppierung; „Gesamt“
+                  behält die semantische Token-Typen-Reihenfolge). Eigene
+                  Legend-Content-Komponente, da Recharts 3 kein `reversed`
+                  mehr kennt — die Bars werden aufsteigend gerendert. */}
+              <Legend
+                wrapperStyle={{ flexWrap: "wrap" }}
+                content={grouped ? <DescLegend /> : undefined}
+              />
+              {/* Stacking: Recharts legt die ERSTE Serie unters Stapel-Etage.
+                  Damit bei Anbieter/Family/Hersteller die Serie mit den meisten
+                  Tokens OBEN liegt, werden diese Bars aufsteigend gerendert —
+                  Farben bleiben über den Original-Index (absteigend) stabil pro
+                  Serie. „Gesamt“ (Input/Cache/Output/Reasoning) unverändert. */}
+              {(grouped ? [...series].reverse() : series).map((s, i) => (
                 <Bar
                   key={s.key}
                   dataKey={s.key}
                   name={s.label}
                   stackId="tokens"
-                  fill={paletteColor(i)}
+                  fill={paletteColor(grouped ? series.length - 1 - i : i)}
                   onClick={(data: any) => {
                     if (!canDrillDown) return;
                     const d: unknown = data?.payload?.day;
@@ -610,19 +638,47 @@ function TokenTrendChart({
   );
 }
 
+/**
+ * Legend content that renders series in REVERSE render order (i.e. largest
+ * first, matching the stacked bars where the biggest segment sits on top).
+ */
+function DescLegend({ payload }: any) {
+  if (!payload?.length) return null;
+  return (
+    <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
+      {[...payload].reverse().map((e: any) => (
+        <li key={e.dataKey ?? e.value} className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ backgroundColor: e.color }}
+          />
+          <span>{e.value}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Custom tooltip for the stacked token trend: per-series values + day total. */
 function TokenTrendTooltip({
   active,
   payload,
   label,
   fmtLabel,
+  sortDesc,
 }: any) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0);
+  // Gruppierte Ansicht: größter Wert zuerst (passt zur Legende/Stapel-Ordnung).
+  const items = sortDesc
+    ? [...payload].sort(
+        (a: any, b: any) => (Number(b.value) || 0) - (Number(a.value) || 0),
+      )
+    : payload;
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
       <div className="mb-1 font-medium">{fmtLabel ? fmtLabel(label) : label}</div>
-      {payload.map((e: any) => (
+      {items.map((e: any) => (
         <div key={e.dataKey} className="flex items-center gap-1.5">
           <span
             className="inline-block h-2 w-2 rounded-full"
@@ -713,9 +769,8 @@ function CostTrendChart({
 
 const SHARE_CATS = [
   { key: "input", field: "inputTokens", labelKey: "tokInput", color: "var(--color-primary)" },
+  { key: "output", field: "outputTokens", labelKey: "tokOutputIncl", color: "var(--color-secondary)" },
   { key: "cacheRead", field: "cacheReadTokens", labelKey: "tokCacheRead", color: "var(--color-info)" },
-  { key: "output", field: "outputTokens", labelKey: "tokOutput", color: "var(--color-secondary)" },
-  { key: "reasoning", field: "reasoningTokens", labelKey: "tokReasoning", color: "var(--color-accent)" },
 ] as const;
 
 type ShareRow = Record<string, number | string>;
@@ -745,7 +800,7 @@ function TokenShareChart({
   // Aggregate per day (groupBy="total" -> one point per day) and normalize the
   // four categories to a 0-100% share; keep absolute values for the tooltip.
   const rows: ShareRow[] = (() => {
-    const pts = api.data?.points ?? [];
+    const pts = foldReasoningIntoOutput(api.data?.points ?? []);
     const byDay = new Map<string, ShareRow>();
     for (const p of pts) {
       const row = byDay.get(p.day) ?? { day: p.day };
