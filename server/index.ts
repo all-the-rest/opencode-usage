@@ -22,6 +22,14 @@ import {
   type DatabaseType,
 } from "./db";
 import { resolveModelMeta, familyKey } from "./metadata";
+import {
+  getShareData,
+  renderShareCard,
+  renderSharePng,
+  type ShareLang,
+  type ShareProjectsMode,
+  type ShareRange,
+} from "./share";
 import { detectManufacturer } from "../src/lib/manufacturers";
 import type {
   Summary,
@@ -59,6 +67,40 @@ function handleApi(c: Context, fn: (db: DatabaseType) => Response): Response {
   return fn(db);
 }
 
+/**
+ * Global project filter (?project=<basename>). Matches the directory exactly
+ * or as a path suffix ("tracking" also matches ".../dev/tracking").
+ * NOTE: ?dir= is unrelated — it is the session sort direction (asc/desc).
+ */
+function projectFilter(
+  project: string | undefined,
+): { sql: string; params: string[] } {
+  const d = project?.trim();
+  if (!d) return { sql: "", params: [] };
+  return {
+    sql: " AND (directory = ? OR directory LIKE '%/' || ?)",
+    params: [d, d],
+  };
+}
+
+/**
+ * Optional date-range query params (from/to, YYYY-MM-DD, local time). Returns
+ * `ok: false` when only one is present or the format is invalid — callers then
+ * respond 400. `hasRange` is true only when BOTH bounds are valid.
+ */
+function readRange(c: Context): {
+  from: string | null;
+  to: string | null;
+  ok: boolean;
+} {
+  const from = c.req.query("from");
+  const to = c.req.query("to");
+  const ok =
+    (from == null || /^\d{4}-\d{2}-\d{2}$/.test(from)) &&
+    (to == null || /^\d{4}-\d{2}-\d{2}$/.test(to));
+  return { from: from ?? null, to: to ?? null, ok };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/stats/summary
 // ---------------------------------------------------------------------------
@@ -75,24 +117,27 @@ interface SummaryRow {
   sessionCount: number | null;
 }
 
-// --- Globaler Projekt-Filter (?project=<basename>) --------------------------
-// project ist der Basename eines Verzeichnisses; gematcht wird exakt oder als
-// Pfad-Suffix ("tracking" matcht auch ".../dev/tracking"). Hinweis: ?dir= ist
-// im sessions-Endpoint bereits die Sortierrichtung (asc/desc).
-function projectFilter(
-  project: string | undefined,
-): { sql: string; params: string[] } {
-  const d = project?.trim();
-  if (!d) return { sql: "", params: [] };
-  return {
-    sql: " AND (directory = ? OR directory LIKE '%/' || ?)",
-    params: [d, d],
-  };
+function validateDate(v: string | undefined): v is string {
+  return v != null && /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
 app.get("/api/stats/summary", (c) =>
   handleApi(c, (db) => {
     const { sql, params } = projectFilter(c.req.query("project"));
+
+    // Optional range (YYYY-MM-DD, local time). Used by the dashboard KPIs to
+    // scope to the current month. Without both params the result is all-time.
+    const from = c.req.query("from");
+    const to = c.req.query("to");
+    if ((from != null || to != null) && (!validateDate(from) || !validateDate(to))) {
+      return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    }
+    const hasRange = from != null && to != null;
+    const rangeSql = hasRange
+      ? " AND date(m.time_created / 1000, 'unixepoch', 'localtime') BETWEEN ? AND ?"
+      : "";
+    const rangeParams = hasRange ? [from!, to!] : [];
+
     const row = (
       sql
         ? db
@@ -107,11 +152,11 @@ app.get("/api/stats/summary", (c) =>
                 MIN(m.time_created) AS firstMessageAt,
                 MAX(m.time_created) AS lastMessageAt,
                 COUNT(DISTINCT m.session_id) AS sessionCount
-         FROM messages m
-         JOIN sessions_agg s ON s.session_id = m.session_id
-         WHERE 1=1${sql}`,
+          FROM messages m
+          JOIN sessions_agg s ON s.session_id = m.session_id
+          WHERE 1=1${sql}${rangeSql}`,
             )
-            .get(...params)
+            .get(...params, ...rangeParams)
         : db
             .prepare(
               `SELECT COUNT(*) AS messageCount,
@@ -124,9 +169,10 @@ app.get("/api/stats/summary", (c) =>
                 MIN(time_created) AS firstMessageAt,
                 MAX(time_created) AS lastMessageAt,
                 COUNT(DISTINCT session_id) AS sessionCount
-         FROM messages`,
+          FROM messages m
+          WHERE 1=1${rangeSql}`,
             )
-            .get()
+            .get(...rangeParams)
     ) as SummaryRow | undefined;
 
     const input = num(row?.inputTokens);
@@ -154,7 +200,7 @@ app.get("/api/stats/summary", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/timeseries?granularity=day|week|month&groupBy=provider|family|model|total
+// GET /api/stats/timeseries?granularity=day|week|month|all&groupBy=provider|family|model|manufacturer|total
 // ---------------------------------------------------------------------------
 interface DailyAggRow {
   day: string;
@@ -171,9 +217,10 @@ interface DailyAggRow {
 
 /** Truncate a YYYY-MM-DD day string into the requested granularity bucket. */
 function bucketDay(day: string, g: Granularity): string {
+  if (g === "all") return "all"; // entire period = single bucket
   if (g === "day") return day;
   if (g === "month") return `${day.slice(0, 7)}-01`;
-  // week: Monday of the ISO-ish week (local time, matching the stored day).
+  // week: Monday of the local-time week containing `day`.
   const d = new Date(`${day}T00:00:00`);
   const dow = d.getDay(); // 0=Sun..6=Sat
   const sinceMonday = (dow + 6) % 7;
@@ -184,10 +231,7 @@ function bucketDay(day: string, g: Granularity): string {
   return `${y}-${m}-${dd}`;
 }
 
-function groupKeyValue(
-  r: DailyAggRow,
-  groupBy: GroupBy,
-): string {
+function groupKeyValue(r: DailyAggRow, groupBy: GroupBy): string {
   switch (groupBy) {
     case "provider":
       return r.provider_id;
@@ -204,7 +248,7 @@ function groupKeyValue(
 }
 
 function validGranularity(v: string | undefined): Granularity {
-  return v === "week" || v === "month" || v === "day" ? v : "day";
+  return v === "week" || v === "month" || v === "day" || v === "all" ? v : "day";
 }
 
 function validGroupBy(v: string | undefined): GroupBy {
@@ -222,14 +266,19 @@ app.get("/api/stats/timeseries", (c) =>
     const granularity = validGranularity(c.req.query("granularity"));
     const groupBy = validGroupBy(c.req.query("groupBy"));
     const { sql, params } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange ? " AND day BETWEEN ? AND ?" : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const rows = db
       .prepare(
         `SELECT day, provider_id, model_id, msg_count, input_tokens,
                 output_tokens, reasoning_tokens, cache_read, cache_write, cost
-         FROM daily_agg
-         WHERE 1=1${sql}`,
+          FROM daily_agg
+          WHERE 1=1${sql}${rangeSql}`,
       )
-      .all(...params) as DailyAggRow[];
+      .all(...params, ...rangeParams) as DailyAggRow[];
 
     const acc = new Map<string, TimeseriesPoint>();
     for (const r of rows) {
@@ -286,6 +335,11 @@ interface ModelAggRow {
 app.get("/api/stats/models", (c) =>
   handleApi(c, (db) => {
     const { sql, params } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange ? " AND day BETWEEN ? AND ?" : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const rows = db
       .prepare(
         `SELECT provider_id, model_id,
@@ -296,11 +350,11 @@ app.get("/api/stats/models", (c) =>
                 SUM(cache_read) AS cacheReadTokens,
                 SUM(cache_write) AS cacheWriteTokens,
                 SUM(cost) AS cost
-         FROM daily_agg
-         WHERE 1=1${sql}
-         GROUP BY provider_id, model_id`,
+          FROM daily_agg
+          WHERE 1=1${sql}${rangeSql}
+          GROUP BY provider_id, model_id`,
       )
-      .all(...params) as ModelAggRow[];
+      .all(...params, ...rangeParams) as ModelAggRow[];
 
     const result: ModelBreakdownRow[] = rows.map((r) => {
       const meta = resolveModelMeta(r.provider_id, r.model_id);
@@ -332,12 +386,19 @@ app.get("/api/stats/models", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/projects — Projekte = Verzeichnisse (Nutzerwunsch):
-// Aggregation aus sessions_agg GROUP BY directory, sortiert nach cost desc
+// GET /api/stats/projects — projects = directories (per user decision):
+// aggregated from sessions_agg GROUP BY directory, ordered by cost desc.
 // ---------------------------------------------------------------------------
 app.get("/api/stats/projects", (c) =>
   handleApi(c, (db) => {
     const { sql, params } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange
+      ? " AND date(time_updated / 1000, 'unixepoch', 'localtime') BETWEEN ? AND ?"
+      : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const rows = db
       .prepare(
         `SELECT directory,
@@ -350,12 +411,12 @@ app.get("/api/stats/projects", (c) =>
                 SUM(cache_write) AS cache_write,
                 SUM(cost) AS cost,
                 MAX(time_updated) AS last_activity_at
-         FROM sessions_agg
-         WHERE 1=1${sql}
-         GROUP BY directory
-         ORDER BY cost DESC`,
+          FROM sessions_agg
+          WHERE 1=1${sql}${rangeSql}
+          GROUP BY directory
+          ORDER BY cost DESC`,
       )
-      .all(...params) as Array<{
+      .all(...params, ...rangeParams) as Array<{
       directory: string;
       session_count: number;
       msg_count: number;
@@ -369,7 +430,7 @@ app.get("/api/stats/projects", (c) =>
     }>;
 
     const result: ProjectRow[] = rows.map((r) => ({
-      projectId: r.directory, // Verzeichnis IST das Projekt
+      projectId: r.directory, // the directory IS the project
       directory: r.directory,
       name: null,
       sessionCount: r.session_count,
@@ -387,7 +448,7 @@ app.get("/api/stats/projects", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/sessions?limit=&offset=&sort=(cost|tokens|recent)&dir=(asc|desc)
+// GET /api/stats/sessions?limit=&offset=&sort=&dir=(asc|desc)
 // ---------------------------------------------------------------------------
 interface SessionAggRow {
   session_id: string;
@@ -414,10 +475,9 @@ function clampInt(v: string | undefined, fallback: number, min: number, max: num
 }
 
 /**
- * Fixed map from client sort key → safe SQL ORDER BY expression.
- * Never built from user input via string interpolation — `orderCol` is always
- * one of these literal fragments (or the `recent` default), so a bad `sort`
- * value can only produce a harmless default, never SQL injection.
+ * Fixed map from client sort key to a safe SQL ORDER BY expression. Never built
+ * from user input via interpolation — so a bad `sort` value can only fall back
+ * to the `recent` default, never produce SQL injection.
  */
 const SESSION_SORT_COLUMNS: Record<string, string> = {
   recent: "time_updated",
@@ -437,6 +497,13 @@ app.get("/api/stats/sessions", (c) =>
     const offset = clampInt(c.req.query("offset"), 0, 0, Number.MAX_SAFE_INTEGER);
 
     const { sql, params } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange
+      ? " AND date(time_updated / 1000, 'unixepoch', 'localtime') BETWEEN ? AND ?"
+      : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const sortRaw = c.req.query("sort");
     const orderCol =
       SESSION_SORT_COLUMNS[sortRaw ?? "recent"] ?? SESSION_SORT_COLUMNS.recent;
@@ -447,12 +514,12 @@ app.get("/api/stats/sessions", (c) =>
         `SELECT session_id, project_id, directory, title, model, agent,
                 msg_count, input_tokens, output_tokens, reasoning_tokens,
                 cache_read, cache_write, cost, time_created, time_updated
-         FROM sessions_agg
-         WHERE 1=1${sql}
-         ORDER BY ${orderCol} ${dirSql}
-         LIMIT ? OFFSET ?`,
+          FROM sessions_agg
+          WHERE 1=1${sql}${rangeSql}
+          ORDER BY ${orderCol} ${dirSql}
+          LIMIT ? OFFSET ?`,
       )
-      .all(...params, limit, offset) as SessionAggRow[];
+      .all(...params, ...rangeParams, limit, offset) as SessionAggRow[];
 
     const result: SessionRow[] = rows.map((r) => ({
       sessionId: r.session_id,
@@ -491,13 +558,11 @@ interface SessionMsgRow {
   cost: number;
 }
 
-interface FitResult {
+/** Pearson correlation + ordinary least-squares linear fit for (x, y). */
+function pearsonAndFit(xs: number[], ys: number[]): {
   pearsonCorrelation: number | null;
   linearFit: { slope: number; intercept: number } | null;
-}
-
-/** Pearson correlation + ordinary least-squares linear fit for (x, y). */
-function pearsonAndFit(xs: number[], ys: number[]): FitResult {
+} {
   const n = xs.length;
   if (n < 2) return { pearsonCorrelation: null, linearFit: null };
   let sx = 0, sy = 0, sxy = 0, sxx = 0, syy = 0;
@@ -534,25 +599,30 @@ const BUCKETS: Array<{ label: string; min: number; max: number }> = [
 
 app.get("/api/stats/cache-analysis", (c) =>
   handleApi(c, (db) => {
-    // minMessages: Sessions mit sehr wenigen Nachrichten haben eine instabile
-    // Cache-Hit-Ratio (Kontext wird erst aufgebaut). Default 20, via Query
-    // parametrierbar. Gilt für points/Korrelation/Regression; die Buckets
-    // bleiben bewusst komplett (sie zeigen die Stabilisierung über die Zeit).
+    // Sessions with very few messages have an unstable cache-hit ratio (the
+    // context is still being built up). Default 20, configurable via query.
+    // Applies to points/correlation/regression; the buckets stay complete on
+    // purpose (they show the stabilization across session sizes).
     const minMessages = Math.max(
       1,
       Number.parseInt(c.req.query("minMessages") ?? "20", 10) || 20,
     );
-    const { sql: pSql, params: pParams } = projectFilter(
-      c.req.query("project"),
-    );
+    const { sql: pSql, params: pParams } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange
+      ? " AND date(time_updated / 1000, 'unixepoch', 'localtime') BETWEEN ? AND ?"
+      : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const rows = db
       .prepare(
         `SELECT session_id, title, msg_count, input_tokens, output_tokens,
                 reasoning_tokens, cache_read, cache_write, cost
-         FROM sessions_agg
-         WHERE msg_count >= ?${pSql}`,
+          FROM sessions_agg
+          WHERE msg_count >= ?${pSql}${rangeSql}`,
       )
-      .all(minMessages, ...pParams) as SessionMsgRow[];
+      .all(minMessages, ...pParams, ...rangeParams) as SessionMsgRow[];
 
     const points: CacheAnalysisPoint[] = rows.map((r) => ({
       sessionId: r.session_id,
@@ -601,12 +671,17 @@ interface HourlyAggRow {
 app.get("/api/stats/heatmap", (c) =>
   handleApi(c, (db) => {
     const { sql, params } = projectFilter(c.req.query("project"));
+    const r = readRange(c);
+    if (!r.ok) return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    const hasRange = r.from != null && r.to != null;
+    const rangeSql = hasRange ? " AND day BETWEEN ? AND ?" : "";
+    const rangeParams = hasRange ? [r.from!, r.to!] : [];
     const rows = db
       .prepare(
         `SELECT day, hour, msg_count, cost FROM hourly_agg
-         WHERE 1=1${sql}`,
+          WHERE 1=1${sql}${rangeSql}`,
       )
-      .all(...params) as HourlyAggRow[];
+      .all(...params, ...rangeParams) as HourlyAggRow[];
     const result: HeatmapCell[] = rows.map((r) => ({
       day: r.day,
       hour: r.hour,
@@ -618,7 +693,7 @@ app.get("/api/stats/heatmap", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/directories — Verzeichnisse für die globale Filterleiste
+// GET /api/stats/directories — directories for the global filter bar
 // ---------------------------------------------------------------------------
 app.get("/api/stats/directories", (c) =>
   handleApi(c, (db) => {
@@ -627,9 +702,9 @@ app.get("/api/stats/directories", (c) =>
         `SELECT directory,
                 SUM(msg_count) AS msg_count,
                 SUM(cost) AS cost
-         FROM sessions_agg
-         GROUP BY directory
-         ORDER BY msg_count DESC`,
+          FROM sessions_agg
+          GROUP BY directory
+          ORDER BY msg_count DESC`,
       )
       .all() as Array<{ directory: string; msg_count: number; cost: number }>;
     return c.json(
@@ -643,13 +718,13 @@ app.get("/api/stats/directories", (c) =>
   }),
 );
 
-function basenameOf(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
+function basenameOf(p: string): string {
+  const parts = p.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? p;
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/stats/day/:date?project= — Tages-Detail (DayDetail-Contract)
+// GET /api/stats/day/:date?project= — day detail (DayDetail contract)
 // ---------------------------------------------------------------------------
 interface DayAggRow {
   day: string;
@@ -673,14 +748,13 @@ app.get("/api/stats/day/:date", (c) =>
     }
     const { sql, params } = projectFilter(c.req.query("project"));
 
-    // Totals + byModel + byProject aus daily_agg
     const dayRows = db
       .prepare(
         `SELECT day, directory, provider_id, model_id, msg_count,
                 input_tokens, output_tokens, reasoning_tokens,
                 cache_read, cache_write, cost
-         FROM daily_agg
-         WHERE day = ?${sql}`,
+          FROM daily_agg
+          WHERE day = ?${sql}`,
       )
       .all(date, ...params) as DayAggRow[];
 
@@ -693,22 +767,11 @@ app.get("/api/stats/day/:date", (c) =>
     let cost = 0;
     const byModelMap = new Map<
       string,
-      {
-        providerId: string;
-        modelId: string;
-        msgCount: number;
-        totalTokens: number;
-        cost: number;
-      }
+      { providerId: string; modelId: string; msgCount: number; totalTokens: number; cost: number }
     >();
     const byProjectMap = new Map<
       string,
-      {
-        directory: string;
-        msgCount: number;
-        totalTokens: number;
-        cost: number;
-      }
+      { directory: string; msgCount: number; totalTokens: number; cost: number }
     >();
     for (const r of dayRows) {
       msgCount += r.msg_count;
@@ -728,8 +791,7 @@ app.get("/api/stats/day/:date", (c) =>
         cost: 0,
       };
       mEntry.msgCount += r.msg_count;
-      mEntry.totalTokens +=
-        r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      mEntry.totalTokens += r.input_tokens + r.output_tokens + r.reasoning_tokens;
       mEntry.cost += r.cost;
       byModelMap.set(mk, mEntry);
 
@@ -740,19 +802,17 @@ app.get("/api/stats/day/:date", (c) =>
         cost: 0,
       };
       pEntry.msgCount += r.msg_count;
-      pEntry.totalTokens +=
-        r.input_tokens + r.output_tokens + r.reasoning_tokens;
+      pEntry.totalTokens += r.input_tokens + r.output_tokens + r.reasoning_tokens;
       pEntry.cost += r.cost;
       byProjectMap.set(r.directory, pEntry);
     }
 
-    // Stundenverlauf aus hourly_agg
     const hourRows = db
       .prepare(
         `SELECT hour, SUM(msg_count) AS msg_count
-         FROM hourly_agg
-         WHERE day = ?${sql}
-         GROUP BY hour`,
+          FROM hourly_agg
+          WHERE day = ?${sql}
+          GROUP BY hour`,
       )
       .all(date, ...params) as Array<{ hour: number; msg_count: number }>;
     const byHour = Array.from({ length: 24 }, (_, h) => ({
@@ -760,15 +820,14 @@ app.get("/api/stats/day/:date", (c) =>
       msgCount: num(hourRows.find((x) => x.hour === h)?.msg_count),
     }));
 
-    // Aktive Sessions des Tages (time_updated im Tagesfenster)
     const sessionRows = db
       .prepare(
         `SELECT session_id, project_id, directory, title, model, agent,
                 msg_count, input_tokens, output_tokens, reasoning_tokens,
                 cache_read, cache_write, cost, time_created, time_updated
-         FROM sessions_agg
-         WHERE date(time_updated / 1000, 'unixepoch', 'localtime') = ?${sql}
-         ORDER BY time_updated DESC`,
+          FROM sessions_agg
+          WHERE date(time_updated / 1000, 'unixepoch', 'localtime') = ?${sql}
+          ORDER BY time_updated DESC`,
       )
       .all(date, ...params) as SessionAggRow[];
 
@@ -786,11 +845,7 @@ app.get("/api/stats/day/:date", (c) =>
       cacheReadTokens: r.cache_read,
       cacheWriteTokens: r.cache_write,
       cost: r.cost,
-      cacheHitRatio: cacheHitRatio(
-        r.input_tokens,
-        r.cache_read,
-        r.cache_write,
-      ),
+      cacheHitRatio: cacheHitRatio(r.input_tokens, r.cache_read, r.cache_write),
       timeCreated: r.time_created,
       timeUpdated: r.time_updated,
     }));
@@ -807,9 +862,7 @@ app.get("/api/stats/day/:date", (c) =>
       sessionCount: sessions.length,
       byHour,
       byModel: [...byModelMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
-      byProject: [...byProjectMap.values()].sort(
-        (a, b) => b.totalTokens - a.totalTokens,
-      ),
+      byProject: [...byProjectMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
       sessions,
     };
     return c.json(detail);
@@ -817,7 +870,242 @@ app.get("/api/stats/day/:date", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// GET /api/meta
+// ---------------------------------------------------------------------------
+// GET /api/stats/range?from=&to=&project= — period detail (RangeDetail)
+// Generalizes the single-day detail to an arbitrary YYYY-MM-DD range so the
+// dashboard can drill into a week or month. from/to are REQUIRED and validated;
+// invalid/wrong format -> 400. Returns totals, by-model / by-project aggregates,
+// a time breakdown (byHour for single-day ranges, byDay otherwise) and the
+// sessions active in the range.
+// ---------------------------------------------------------------------------
+interface RangeAggRow {
+  provider_id: string;
+  model_id: string;
+  directory: string;
+  msg_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cache_read: number;
+  cache_write: number;
+  cost: number;
+}
+
+app.get("/api/stats/range", (c) =>
+  handleApi(c, (db) => {
+    const r = readRange(c);
+    if (!r.ok) {
+      return c.json({ error: "invalid from/to, expected YYYY-MM-DD" }, 400);
+    }
+    if (!r.from || !r.to) {
+      return c.json({ error: "from and to are required" }, 400);
+    }
+    const { sql, params } = projectFilter(c.req.query("project"));
+
+    const rows = db
+      .prepare(
+        `SELECT provider_id, model_id, directory,
+                SUM(msg_count) AS msg_count,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(reasoning_tokens) AS reasoning_tokens,
+                SUM(cache_read) AS cache_read,
+                SUM(cache_write) AS cache_write,
+                SUM(cost) AS cost
+          FROM daily_agg
+          WHERE day BETWEEN ? AND ?${sql}
+          GROUP BY provider_id, model_id, directory`,
+      )
+      .all(r.from, r.to, ...params) as RangeAggRow[];
+
+    let msgCount = 0,
+      inputTokens = 0,
+      outputTokens = 0,
+      reasoningTokens = 0,
+      cacheReadTokens = 0,
+      cacheWriteTokens = 0,
+      cost = 0;
+    const byModelMap = new Map<
+      string,
+      { providerId: string; modelId: string; msgCount: number; totalTokens: number; cost: number }
+    >();
+    const byProjectMap = new Map<
+      string,
+      { directory: string; msgCount: number; totalTokens: number; cost: number }
+    >();
+    for (const rr of rows) {
+      msgCount += rr.msg_count;
+      inputTokens += rr.input_tokens;
+      outputTokens += rr.output_tokens;
+      reasoningTokens += rr.reasoning_tokens;
+      cacheReadTokens += rr.cache_read;
+      cacheWriteTokens += rr.cache_write;
+      cost += rr.cost;
+
+      const mk = `${rr.provider_id}\u0000${rr.model_id}`;
+      const m = byModelMap.get(mk) ?? {
+        providerId: rr.provider_id,
+        modelId: rr.model_id,
+        msgCount: 0,
+        totalTokens: 0,
+        cost: 0,
+      };
+      m.msgCount += rr.msg_count;
+      m.totalTokens += rr.input_tokens + rr.output_tokens + rr.reasoning_tokens;
+      m.cost += rr.cost;
+      byModelMap.set(mk, m);
+
+      const pr = byProjectMap.get(rr.directory) ?? {
+        directory: rr.directory,
+        msgCount: 0,
+        totalTokens: 0,
+        cost: 0,
+      };
+      pr.msgCount += rr.msg_count;
+      pr.totalTokens += rr.input_tokens + rr.output_tokens + rr.reasoning_tokens;
+      pr.cost += rr.cost;
+      byProjectMap.set(rr.directory, pr);
+    }
+
+    let byHour: Array<{ hour: number; msgCount: number }> = [];
+    let byDay: Array<{ day: string; msgCount: number }> = [];
+    if (r.from === r.to) {
+      const hr = db
+        .prepare(
+          `SELECT hour, SUM(msg_count) AS msg_count FROM hourly_agg WHERE day = ?${sql} GROUP BY hour`,
+        )
+        .all(r.from, ...params) as Array<{ hour: number; msg_count: number }>;
+      byHour = Array.from({ length: 24 }, (_, h) => ({
+        hour: h,
+        msgCount: num(hr.find((x) => x.hour === h)?.msg_count),
+      }));
+    } else {
+      const dy = db
+        .prepare(
+          `SELECT day, SUM(msg_count) AS msg_count FROM daily_agg WHERE day BETWEEN ? AND ?${sql} GROUP BY day ORDER BY day`,
+        )
+        .all(r.from, r.to, ...params) as Array<{ day: string; msg_count: number }>;
+      byDay = dy.map((x) => ({ day: x.day, msgCount: num(x.msg_count) }));
+    }
+
+    const sessionRows = db
+      .prepare(
+        `SELECT session_id, project_id, directory, title, model, agent,
+                msg_count, input_tokens, output_tokens, reasoning_tokens,
+                cache_read, cache_write, cost, time_created, time_updated
+          FROM sessions_agg
+          WHERE date(time_updated / 1000, 'unixepoch', 'localtime') BETWEEN ? AND ?${sql}
+          ORDER BY time_updated DESC`,
+      )
+      .all(r.from, r.to, ...params) as SessionAggRow[];
+
+    const sessions: SessionRow[] = sessionRows.map((s) => ({
+      sessionId: s.session_id,
+      projectId: s.project_id,
+      directory: s.directory,
+      title: s.title,
+      modelId: s.model,
+      agent: s.agent,
+      msgCount: s.msg_count,
+      inputTokens: s.input_tokens,
+      outputTokens: s.output_tokens,
+      reasoningTokens: s.reasoning_tokens,
+      cacheReadTokens: s.cache_read,
+      cacheWriteTokens: s.cache_write,
+      cost: s.cost,
+      cacheHitRatio: cacheHitRatio(s.input_tokens, s.cache_read, s.cache_write),
+      timeCreated: s.time_created,
+      timeUpdated: s.time_updated,
+    }));
+
+    return c.json({
+      from: r.from,
+      to: r.to,
+      msgCount,
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      cost,
+      sessionCount: sessions.length,
+      byHour,
+      byDay,
+      byModel: [...byModelMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+      byProject: [...byProjectMap.values()].sort((a, b) => b.totalTokens - a.totalTokens),
+      sessions,
+    });
+  }),
+);
+
+// GET /api/stats/share (+ .svg / .png) — Share-Card (Todo 28/28e)
+// Query: range=today|week|month, project=<basename>,
+//        projects=all|hide|none (default all; replaces hideProjects=1),
+//        lang=de|en. Invalid range or projects -> 400.
+// ---------------------------------------------------------------------------
+type ShareParams = {
+  range: ShareRange;
+  project?: string;
+  projects: ShareProjectsMode;
+  lang: ShareLang;
+};
+
+function shareParams(c: Context): ShareParams | { error: string } {
+  const raw = c.req.query("range") ?? "today";
+  if (raw !== "today" && raw !== "week" && raw !== "month") {
+    return { error: "invalid range, expected today|week|month" };
+  }
+  const rawProjects = c.req.query("projects") ?? "all";
+  if (rawProjects !== "all" && rawProjects !== "hide" && rawProjects !== "none") {
+    return { error: "invalid projects, expected all|hide|none" };
+  }
+  const langRaw = c.req.query("lang");
+  return {
+    range: raw,
+    project: c.req.query("project") || undefined,
+    projects: rawProjects,
+    lang: langRaw === "en" ? "en" : "de",
+  };
+}
+
+app.get("/api/stats/share", (c) =>
+  handleApi(c, (db) => {
+    const p = shareParams(c);
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    return c.json(getShareData(db, p));
+  }),
+);
+
+app.get("/api/stats/share.svg", (c) =>
+  handleApi(c, (db) => {
+    const p = shareParams(c);
+    if ("error" in p) return c.json({ error: p.error }, 400);
+    const svg = renderShareCard(getShareData(db, p));
+    return new Response(svg, {
+      headers: { "content-type": "image/svg+xml; charset=utf-8" },
+    });
+  }),
+);
+
+app.get("/api/stats/share.png", async (c) => {
+  const db = openDatabase();
+  if (!db) {
+    return c.json(
+      { error: `stats.db is not available: ${getDbError() ?? "unknown error"}` },
+      503,
+    );
+  }
+  const p = shareParams(c);
+  if ("error" in p) return c.json({ error: p.error }, 400);
+  const svg = renderShareCard(getShareData(db, p));
+  const png = await renderSharePng(svg);
+  return new Response(new Uint8Array(png), {
+    headers: { "content-type": "image/png" },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/stats/meta
 // ---------------------------------------------------------------------------
 interface MetaRow {
   value: string;
