@@ -20,7 +20,26 @@ export const STEALTH_MANUFACTURER = "OpenCode Stealth";
 
 const MANUAL_RULES: Array<[pattern: string, manufacturer: string]> = [
   ["big-pickle", STEALTH_MANUFACTURER], // Stealth-Modell, Lab unbekannt
-  ["x-preview-f", STEALTH_MANUFACTURER], // Ox Alpha (Free) — Stealth-Preview
+  // Ox Alpha Free — dasselbe Stealth-Modell unter zwei Provider-IDs:
+  // opencode = x-preview-f-free, opencode-go = ox-alpha-free.
+  ["x-preview-f", STEALTH_MANUFACTURER],
+  ["ox-alpha", STEALTH_MANUFACTURER],
 ];
 
 export default MANUAL_RULES;
+
+/**
+ * Kuratierte Family-Overrides — korrigieren inkonsistente/falsche
+ * Family-Slugs aus dem Katalog (models.dev) und haben VORRANG vor Katalog
+ * UND ID-Heuristik (siehe catalogFamily in server/metadata.ts).
+ *
+ * Substring-Match auf die normalisierte model_id (ohne Provider-Pfad,
+ * case-insensitive); erste Regel, deren Pattern passt, gewinnt.
+ */
+export const MANUAL_FAMILY_RULES: Array<[pattern: string, family: string]> = [
+  // Alle MiMo-Varianten (v2/v2.5, ±pro, ±free) sind eine Family „mimo“ —
+  // der Katalog splittet fälschlich in „mimo-v2.5“, „mimo-v2.5-pro-free“ etc.
+  ["mimo", "mimo"],
+  // Muse Spark Contributor & -Free: Katalog sagt fälschlich „muse-free“.
+  ["muse", "muse"],
+];

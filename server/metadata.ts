@@ -7,9 +7,10 @@
  * ocgo-price-tracker fallback chain (see src/lib/model-lookup.ts):
  * opencode → global catalog → opencode-go.
  *
- * Die Family kommt bei normalen Modellen ZUERST aus dem kuratierten `family`-
- * Feld des Snapshots (direkter Provider-Treffer oder Fallback-Kette); nur ohne
- * Katalog-Treffer greift die ID-Heuristik (heuristicFamily). Stealth-Modelle
+ * Die Family kommt bei normalen Modellen ZUERST aus den kuratierten
+ * Family-Overrides (MANUAL_FAMILY_RULES), dann aus dem `family`-Feld des
+ * Snapshots (direkter Provider-Treffer oder Fallback-Kette); nur ohne beides
+ * greift die ID-Heuristik (heuristicFamily). Stealth-Modelle
  * (siehe manual-manufacturers.ts) sind standalone: ihr Name ist der
  * öffentliche Katalogname ohne Klammer-Zusatz und ihre Family ist der
  * gemeinsame Stealth-Hersteller-Name — weder Katalog noch ID-Heuristik.
@@ -22,8 +23,10 @@ import {
 } from "../src/lib/model-lookup";
 import {
   isStealthModel,
+  normalizeModelId,
   STEALTH_MANUFACTURER,
 } from "../src/lib/manufacturers";
+import { MANUAL_FAMILY_RULES } from "../src/lib/manual-manufacturers";
 
 export interface ModelMeta {
   providerName: string;
@@ -42,6 +45,13 @@ const lookup = buildModelLookup(providers as ProviderMapLike);
  * opencode-go). Null, wenn der Katalog nichts hergibt.
  */
 function catalogFamily(providerId: string, modelId: string): string | null {
+  // Kuratierte Family-Overrides ZUERST (manual-manufacturers.ts) — sie
+  // korrigieren inkonsistente Katalog-Slugs (z.B. „muse-free“, „mimo-v2.5“)
+  // und schlagen daher Katalog UND Heuristik.
+  const bareId = normalizeModelId(modelId).toLowerCase();
+  for (const [pattern, family] of MANUAL_FAMILY_RULES) {
+    if (bareId.includes(pattern)) return family;
+  }
   const direct = providers[providerId]?.models?.[modelId]?.family;
   if (direct) return direct;
   const viaChain =
@@ -92,11 +102,12 @@ export function heuristicFamily(modelId: string): string {
  *   1. direkter Treffer im eigenen Provider (`providers[providerId]`)
  *   2. Fallback-Kette aus model-lookup.ts (opencode → global → opencode-go)
  *
- * `family`: ZUERST die kuratierte Katalog-Family (direkter Provider-Treffer
- * oder Fallback-Kette, siehe catalogFamily), NUR ohne Katalog-Treffer die
- * ID-Heuristik (heuristicFamily) — per API-Contract konsistent zwischen
- * Models-Breakdown und Timeseries-Grouping. Stealth-Modelle sind standalone
- * und teilen sich STEALTH_MANUFACTURER als Family.
+ * `family`: ZUERST kuratierte Family-Overrides (MANUAL_FAMILY_RULES), dann
+ * die kuratierte Katalog-Family (direkter Provider-Treffer oder Fallback-
+ * Kette, siehe catalogFamily), NUR ohne beides die ID-Heuristik
+ * (heuristicFamily) — per API-Contract konsistent zwischen Models-Breakdown
+ * und Timeseries-Grouping. Stealth-Modelle sind standalone und teilen sich
+ * STEALTH_MANUFACTURER als Family.
  */
 export function resolveModelMeta(
   providerId: string,
@@ -126,8 +137,9 @@ export function resolveModelMeta(
 /**
  * Convenience: just the family key (used for timeseries grouping).
  * Stealth-Modelle bilden ihren eigenen Standalone-Bucket unter dem
- * gemeinsamen Stealth-Namen; sonst gilt kuratierte Katalog-Family
- * (catalogFamily) und — nur ohne Katalog-Treffer — die ID-Heuristik.
+ * gemeinsamen Stealth-Namen; sonst gelten kuratierte Family-Overrides,
+ * kuratierte Katalog-Family (catalogFamily) und — nur ohne beides — die
+ * ID-Heuristik.
  */
 export function familyKey(providerId: string, modelId: string): string {
   if (isStealthModel(modelId)) return STEALTH_MANUFACTURER;
