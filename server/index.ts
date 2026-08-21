@@ -538,7 +538,7 @@ interface MetaRow {
   value: string;
 }
 
-app.get("/api/meta", (c) =>
+app.get("/api/stats/meta", (c) =>
   handleApi(c, (db) => {
     const lastSyncRow = db
       .prepare(`SELECT value FROM meta WHERE key = 'last_sync'`)
