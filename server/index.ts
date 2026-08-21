@@ -463,14 +463,22 @@ const BUCKETS: Array<{ label: string; min: number; max: number }> = [
 
 app.get("/api/stats/cache-analysis", (c) =>
   handleApi(c, (db) => {
+    // minMessages: Sessions mit sehr wenigen Nachrichten haben eine instabile
+    // Cache-Hit-Ratio (Kontext wird erst aufgebaut). Default 20, via Query
+    // parametrierbar. Gilt für points/Korrelation/Regression; die Buckets
+    // bleiben bewusst komplett (sie zeigen die Stabilisierung über die Zeit).
+    const minMessages = Math.max(
+      1,
+      Number.parseInt(c.req.query("minMessages") ?? "20", 10) || 20,
+    );
     const rows = db
       .prepare(
         `SELECT session_id, title, msg_count, input_tokens, output_tokens,
                 reasoning_tokens, cache_read, cache_write, cost
          FROM sessions_agg
-         WHERE msg_count >= 1`,
+         WHERE msg_count >= ?`,
       )
-      .all() as SessionMsgRow[];
+      .all(minMessages) as SessionMsgRow[];
 
     const points: CacheAnalysisPoint[] = rows.map((r) => ({
       sessionId: r.session_id,
