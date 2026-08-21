@@ -25,68 +25,7 @@
 
 ## Offene Todos
 
-- [ ] 24. Großes Drill-Down-Feature (Nutzerwunsch „voll interaktiv, Drill-down
-        überall"):
-        a) Schema: directory-Dimension in daily_agg + hourly_agg, Extractor,
-           Komplett-Rebuild + Verifikation
-        b) Server: ?dir=<basename> Filter auf ALLEN /api/stats/* Endpunkten;
-           NEU /api/stats/day/:date (KPIs, Top-Modelle, Top-Projekte,
-           Stundenverlauf, aktive Sessions des Tages); sessions?dir=
-        c) Frontend: globale Projekt-Filterleiste im Layout (?dir= via URL,
-           Badge mit ✕); Dashboard reagiert auf dir; Klick auf Balken/
-           Anteils-Chart/Heatmap-Zelle setzt ?day=YYYY-MM-DD → Tages-
-           Detail-Sektion (teilbar); Projects: „Sessions anzeigen"-Deep-Link
-           (/sessions?dir=…); Sessions liest ?dir=; alle Seiten kombinieren
-           dir + bestehende Filter
-        d) i18n de/en für alle neuen Labels
-
-- [ ] 28. Share-Card „Token-Statistik als Social-Media-Bild“ (Plan:
-          ~/.opencode/plan/share-image.md):
-          a) Server: GET /api/stats/share (JSON-Aggregation Heute/Woche/
-             Monat, optional ?project=, ?hideProjects=1, ?lang=de|en),
-             /api/stats/share.svg (1200×630 SVG-String-Renderer, dunkles
-             Design, #422ad5-Akzent), /api/stats/share.png (@resvg/resvg-js,
-             ist bereits installiert). Rekorde: längste Session (Dauer),
-             größte Session (Tokens), beste Cache-Hit-Rate (msg_count ≥ 20),
-             stärkster Tag; Top-5-Projekte aus daily_agg (day+directory).
-          b) Frontend: Teilen-Button am Dashboard, daisyUI-Modal mit Range-
-             Segmenten, Vorschau (<img> auf share.svg), PNG-Download/-Kopie
-             (Clipboard), SVG öffnen; URL-Sync ?share=today|week|month
-             (+ ?sharehide=1); i18n de/en (identische Key-Mengen).
-          c) E2E: tests/share.spec.ts (Content-Types, Hero-Zahl im SVG,
-             Dialog via ?share=week, Download-Button).
-          d) Verifikation: Summen der Range manuell gegen daily_agg;
-             typecheck/build/E2E grün.
-          e) NACHFORDERUNG Nutzer (Runde 4):
-             - Projekt-Tri-State im Dialog: Include / Include (hide names) /
-               Exclude (URL: ?shareproj=all|hide|none statt sharehide).
-             - Exclude-Layout: ohne Projektsektion; die VIER Rekord-Badges
-               als volle zweite Reihe unter der KPI-Zeile.
-             - Bildsprache unabhängig von der UI-Sprache wählbar
-               (?sharelang=de|en, Segmented-Control DE/EN im Dialog).
-             - Range „today“: „Stärkster Tag“ entfällt (trivial) → stattdessen
-               SCHLECHTESTE Cache-Hit-Rate unter Sessions mit > 10 Nachrichten.
-             - Token-Split der Karte: Input (+ Cache Write) · Cached
-               (Cache Read) · Output (Output + Reasoning zusammengefasst).
-             - i18n symmetrisch; E2E (share-dialog.spec) an neue Params
-               angepasst.
-
-- [ ] 29. „Gesamt“-Auflösung + Chart-Sync am Token-Zeitverlauf (Nutzerwunsch):
-          a) SERVER: fertig (bucketDay/validGranularity akzeptieren „all“ =
-             ein Bucket über den ganzen Zeitraum; Granularity-Typ erweitert).
-          b) FRONTEND: Auflösungs-Schalter um vierte Option „Gesamt“
-             (i18n granAll de/en) erweitern; ?gran=all gültig (parseEnumParam-
-             Allowlist). Tick-Formatter zeigt bei „all“ „Gesamt“ statt eines
-             Datums. TokenShareChart nutzt dieselbe ?gran= wie der Trend-
-             Chart (bisher hartkodiert „day“) — Kostenverlauf folgt bereits;
-             damit sind alle Daten-Charts an die Auflösung gesynct.
-          c) Drilldown-Guard: bei granularity==="all" dürfen Balken-/Area-
-             Klicks KEIN ?day= setzen (Bucket hat kein reales Datum).
-          d) CostTrendChart: bei „all“ Single-Point-Line sichtbar machen
-             (dot an, sonst unsichtbar).
-          e) E2E: Dashboard-Spec erweitern — Wechsel zu „Gesamt“ ⇒ genau
-             1 Bucket, kein Crash, kein ?day=; i18n-Key-Mengen bleiben
-             symmetrisch; alle bestehenden Suites bleiben grün.
+- (keine — alle Todos verifiziert & entfernt; siehe Verifikations-Log/Archiv)
 
 ## Verifikations-Log
 
@@ -146,8 +85,34 @@ deshalb durch den Orchestrator mit automatisierten, objektiven Checks:
 - Hinweis: Browser-Cache leeren/Hard-Reload nötig, um den alten Bundle-Stand
   auf :3712 zu verlieren.
 
+### Runde 4 — Globaler Zeitraum-Drill-Down, Share-Card, „Gesamt“, Bar-Charts (2026-08-21)
+Todos 24, 28, 29 verifiziert und entfernt. ⚠️ Wie Runde 3: Verifikation durch den
+Orchestrator mit automatisierten Checks (Subagent-Text-Rückgabe weiterhin unzuverlässig).
+- **Todo 24 PASS:** Directory-Dimension + globale Projekt-Filterleiste (?project=)
+  + /api/stats/day/:date; weiterentwickelt zum globalen Zeitraum-Filter
+  (?period=<start>&pperiod=day|week|month): Klick auf einen Balken setzt den Filter,
+  der Token-Trend bleibt Überblick+Navigator, während KPIs, Kosten-/Anteils-Chart,
+  Heatmap und ALLE Seiten (Sessions/Modelle/Projekte/Cache-Analyse) gescoped werden;
+  Reset-Chip in der globalen Filterleiste; Nav-Links und der Projekt→Sessions-Link
+  erhalten den Filter. Neu: /api/stats/range, from/to auf sessions/models/projects/
+  cache-analysis/timeseries/heatmap. Die alte ?day=-Detail-Card ist entfernt
+  (DayDetailSection gelöscht).
+- **Todo 28 PASS:** server/share.ts (SVG-Renderer + PNG via @resvg/resvg-js),
+  ShareDialog mit Projekt-Tri-State (?shareproj=all|hide|none) und unabhängiger
+  Bildsprache (?sharelang=de|en); tests/share-dialog.spec.ts 7/7 grün.
+- **Todo 29 PASS:** ?gran=all (genau ein Bucket), Tick „Gesamt“, Drilldown-Guard;
+  tests/granularity-all.spec.ts 4/4 grün.
+- **Nachforderung Nutzer:** alle Dashboard-Daten-Charts als Balken-Charts
+  (Kostenverlauf Linie→Bar, Token-Anteile Fläche→100 %-gestapelter Bar) für eine
+  saubere Single-Day-Darstellung. i18n Preis-Analyse: Token-Mix nutzt die vollen
+  Labels (priceInput/priceCacheRead/priceOutput/priceCacheWrite statt In/CR/Out/CW);
+  redundanten „aktiv auf“-Text in der Filterleiste entfernt.
+- **Verifikation:** tsc --noEmit clean; Playwright 14/14 grün (E2E_BASE_URL=:5175);
+  Live-Checks: Tag-Drill-Down rendert Balken, Filter überlebt Seitenwechsel.
+
 ## Archiv (frühere Todos, alle verifiziert & entfernt)
 1.–2. Scaffold + pnpm-Setup · 3.–5. Pipeline · 6. Hono-API · 7. Frontend-Basis
 · 8.–12. Vier Seiten inkl. Cache-Analyse · 13. Auto-Refresh · 14. Final Verify
 · 15.–18. UI-Review-Findings · 19.–20. Volumen-Sicht/Anteils-Chart/Defaults
 · 21. Balken-Chart · 22. Preis-Analyse · 23. URL-Filter
+· 24. Drill-Down/Projekt-Filter · 28. Share-Card · 29. Gesamt-Auflösung
