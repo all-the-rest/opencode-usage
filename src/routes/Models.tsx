@@ -44,6 +44,8 @@ import { paletteColor } from "../components/colors";
 type SortKey = "msgCount" | "cost" | "tokens" | "totalTokens";
 type SortDir = "asc" | "desc";
 type FreeFilter = "all" | "only" | "paid";
+type PriceSortKey = "model" | "totalTokens" | "effective" | "theo";
+type PriceSortDir = "asc" | "desc";
 
 export default function Models() {
   const api = usePoll(getModelBreakdown);
@@ -781,8 +783,13 @@ function ModelsPriceAnalysis({
   rows: ModelBreakdownRow[];
   meta: ProviderMap | null;
 }) {
-  const sorted = useMemo(() => {
-    const withPrice = rows
+  const [sortKey, setSortKey] =
+    useState<PriceSortKey>("effective");
+  const [sortDir, setSortDir] = useState<PriceSortDir>("desc");
+
+  // Enrich + filter (unsorted) — the source of truth for the footer totals.
+  const enriched = useMemo(() => {
+    return rows
       .map((r) => {
         const tokens =
           r.inputTokens +
@@ -817,18 +824,57 @@ function ModelsPriceAnalysis({
             mix.reasoning * rates.reasoning +
             mix.cacheWrite * rates.cacheWrite) /
           1e6;
-        return { r, tokens, effective, cost, theo };
+        const totalTokens =
+          r.inputTokens +
+          r.outputTokens +
+          r.reasoningTokens +
+          r.cacheWriteTokens;
+        return { r, tokens, effective, cost, theo, totalTokens };
       })
       .filter((d) => d.tokens > 0);
-    return withPrice.sort((a, b) => b.effective - a.effective);
   }, [rows, meta]);
 
+  // Sort the enriched rows on the computed values BEFORE rendering.
+  const sorted = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...enriched].sort((a, b) => {
+      switch (sortKey) {
+        case "model":
+          return (
+            modelNameOnly(a.r, meta).localeCompare(
+              modelNameOnly(b.r, meta),
+            ) * dir
+          );
+        case "totalTokens":
+          return (a.totalTokens - b.totalTokens) * dir;
+        case "theo":
+          return (a.theo - b.theo) * dir;
+        case "effective":
+        default:
+          return (a.effective - b.effective) * dir;
+      }
+    });
+  }, [enriched, sortKey, sortDir, meta]);
+
+  const toggle = (key: PriceSortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  const arrow = (key: PriceSortKey) =>
+    key === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+
+  // Footer always reflects ALL filtered rows, independent of sort order.
   const totals = useMemo(() => {
-    const sumCost = sorted.reduce((s, d) => s + d.r.cost, 0);
-    const sumTokens = sorted.reduce((s, d) => s + d.tokens, 0);
+    const sumCost = enriched.reduce((s, d) => s + d.r.cost, 0);
+    const sumTokens = enriched.reduce((s, d) => s + d.tokens, 0);
     const avg = sumTokens > 0 ? (sumCost / sumTokens) * 1e6 : 0;
     return { sumCost, sumTokens, avg };
-  }, [sorted]);
+  }, [enriched]);
 
   return (
     <div className="card bg-base-200 shadow-sm">
@@ -846,11 +892,29 @@ function ModelsPriceAnalysis({
               <table className="table table-sm">
                 <thead>
                   <tr>
-                    <th>{t("colModel")}</th>
+                    <th
+                      className="cursor-pointer select-none"
+                      onClick={() => toggle("model")}
+                    >
+                      {t("colModel")}
+                      {arrow("model")}
+                    </th>
                     <th>{t("colTokenMix")}</th>
                     <th>{t("colListPrice")}</th>
-                    <th>{t("colEffectivePrice")}</th>
-                    <th>{t("colTheoPrice")}</th>
+                    <th
+                      className="cursor-pointer select-none"
+                      onClick={() => toggle("effective")}
+                    >
+                      {t("colEffectivePrice")}
+                      {arrow("effective")}
+                    </th>
+                    <th
+                      className="cursor-pointer select-none"
+                      onClick={() => toggle("theo")}
+                    >
+                      {t("colTheoPrice")}
+                      {arrow("theo")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
