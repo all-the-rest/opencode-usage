@@ -2,13 +2,17 @@
  * Models ("/models")
  *  - Sortable table of getModelBreakdown() (provider / model / family / tokens / cost / cache ratio)
  *  - Two donut charts: token share by provider and by family
- *  - Bar chart: top 10 models by cost
+ *  - Two top-10 bar charts: by volume and by cost (separate cards)
+ *  - Price-analysis table (effective vs. list price)
  *  - Enrichment via @opencode-ai/models (Models.make().providers()), loaded once
  *    client-side; on failure we fall back to the DB-provided names.
+ *  - Filters (provider / model / family / free) persisted in the URL via
+ *    react-router useSearchParams so every combination is shareable/bookmarkable.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { useSearchParams } from "react-router";
 import {
   Bar,
   BarChart,
@@ -22,7 +26,7 @@ import {
   YAxis,
 } from "recharts";
 import { Models as ModelsClient } from "@opencode-ai/models";
-import type { ProviderMap } from "@opencode-ai/models";
+import type { ModelCost, ProviderMap } from "@opencode-ai/models";
 import { getModelBreakdown, usePoll } from "../lib/api";
 import type { ModelBreakdownRow } from "../lib/types";
 import {
@@ -36,12 +40,72 @@ import { AsyncState, EmptyState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { paletteColor } from "../components/colors";
 
-type SortKey = "msgCount" | "cost" | "tokens";
+type SortKey = "msgCount" | "cost" | "tokens" | "totalTokens";
 type SortDir = "asc" | "desc";
+type FreeFilter = "all" | "only" | "paid";
 
 export default function Models() {
   const api = usePoll(getModelBreakdown);
   const meta = useModelProviders();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const provider = searchParams.get("provider") ?? "";
+  const model = searchParams.get("model") ?? "";
+  const family = searchParams.get("family") ?? "";
+  const free = (searchParams.get("free") as FreeFilter | null) ?? "all";
+
+  const setParam = (key: string, value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: false },
+    );
+  };
+
+  const hasFilter =
+    !!provider ||
+    !!model.trim() ||
+    !!family ||
+    free !== "all";
+
+  const resetFilters = () => setSearchParams(new URLSearchParams());
+
+  const filtered = useMemo(() => {
+    const m = model.trim().toLowerCase();
+    return (api.data ?? []).filter((r) => {
+      if (provider && r.providerId !== provider) return false;
+      if (family && (r.family ?? "") !== family) return false;
+      if (m) {
+        if (
+          !r.modelId.toLowerCase().includes(m) &&
+          !r.modelName.toLowerCase().includes(m)
+        )
+          return false;
+      }
+      if (free === "only" && r.cost !== 0) return false;
+      if (free === "paid" && r.cost === 0) return false;
+      return true;
+    });
+  }, [api.data, provider, model, family, free]);
+
+  // Distinct providers / families for the filter selects (driven by full data).
+  const providers = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of api.data ?? []) map.set(r.providerId, r.providerName);
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [api.data]);
+  const families = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of api.data ?? []) if (r.family) set.add(r.family);
+    return [...set].sort();
+  }, [api.data]);
+
+  const providerName = (id: string) =>
+    providers.find(([pid]) => pid === id)?.[1] ?? id;
 
   return (
     <div className="space-y-6">
@@ -54,17 +118,33 @@ export default function Models() {
         <p className="text-sm text-warning">{t("modelsMetaError")}</p>
       )}
 
+      <ModelFilters
+        provider={provider}
+        model={model}
+        family={family}
+        free={free}
+        providers={providers}
+        families={families}
+        providerName={providerName}
+        hasFilter={hasFilter}
+        onProvider={(v) => setParam("provider", v)}
+        onModel={(v) => setParam("model", v)}
+        onFamily={(v) => setParam("family", v)}
+        onFree={(v) => setParam("free", v === "all" ? "" : v)}
+        onReset={resetFilters}
+      />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <ChartCard
           title={t("modelsByProvider")}
           height={300}
-          empty={(api.data?.length ?? 0) === 0}
+          empty={filtered.length === 0}
         >
           <DonutChart
             loading={api.loading}
             error={api.error}
             onRetry={api.refetch}
-            rows={api.data}
+            rows={filtered}
             meta={meta.providers}
             groupKey="providerId"
           />
@@ -72,76 +152,188 @@ export default function Models() {
         <ChartCard
           title={t("modelsByFamily")}
           height={300}
-          empty={(api.data?.length ?? 0) === 0}
+          empty={filtered.length === 0}
         >
           <DonutChart
             loading={api.loading}
             error={api.error}
             onRetry={api.refetch}
-            rows={api.data}
+            rows={filtered}
             meta={meta.providers}
             groupKey="family"
           />
         </ChartCard>
       </div>
 
-      <ChartCard
-        title={t("modelsTopCost")}
-        height={320}
-        empty={(api.data?.length ?? 0) === 0}
-      >
-        <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
-          {(() => {
-            const rows = api.data ?? [];
-            if (rows.length === 0) return <EmptyState />;
-            const top = [...rows]
-              .sort((a, b) => b.cost - a.cost)
-              .slice(0, 10)
-              .map((r) => ({
-                name: modelNameOnly(r, meta.providers),
-                cost: r.cost,
-              }));
-            return (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={top}
-                  layout="vertical"
-                  margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    className="stroke-base-300"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tickFormatter={(v) => formatCost(Number(v))}
-                    fontSize={11}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={180}
-                    fontSize={10}
-                    interval={0}
-                  />
-                  <Tooltip
-                    formatter={(value) => formatCost(Number(value ?? 0))}
-                  />
-                  <Bar
-                    dataKey="cost"
-                    name={t("kpiCost")}
-                    fill="var(--color-primary)"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            );
-          })()}
-        </AsyncState>
-      </ChartCard>
+      <TopModelsChart
+        api={api}
+        rows={filtered}
+        meta={meta.providers}
+        mode="volume"
+      />
+      <TopModelsChart api={api} rows={filtered} meta={meta.providers} mode="cost" />
 
-      <ModelTable api={api} meta={meta.providers} />
+      <ModelsPriceAnalysis api={api} rows={filtered} meta={meta.providers} />
+
+      <ModelTable api={api} rows={filtered} meta={meta.providers} />
     </div>
+  );
+}
+
+// --- Filters (URL-persisted) ---
+
+function ModelFilters({
+  provider,
+  model,
+  family,
+  free,
+  providers,
+  families,
+  providerName,
+  hasFilter,
+  onProvider,
+  onModel,
+  onFamily,
+  onFree,
+  onReset,
+}: {
+  provider: string;
+  model: string;
+  family: string;
+  free: FreeFilter;
+  providers: [string, string][];
+  families: string[];
+  providerName: (id: string) => string;
+  hasFilter: boolean;
+  onProvider: (v: string) => void;
+  onModel: (v: string) => void;
+  onFamily: (v: string) => void;
+  onFree: (v: FreeFilter) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="card bg-base-200 shadow-sm">
+      <div className="card-body gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="form-control w-auto">
+            <span className="label-text text-sm opacity-70">
+              {t("filterProvider")}
+            </span>
+            <select
+              className="select select-bordered select-sm"
+              value={provider}
+              onChange={(e) => onProvider(e.target.value)}
+            >
+              <option value="">{t("filterAll")}</option>
+              {providers.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="form-control w-auto">
+            <span className="label-text text-sm opacity-70">
+              {t("filterModel")}
+            </span>
+            <input
+              type="text"
+              className="input input-bordered input-sm"
+              placeholder={t("filterModel")}
+              value={model}
+              onChange={(e) => onModel(e.target.value)}
+            />
+          </label>
+
+          <label className="form-control w-auto">
+            <span className="label-text text-sm opacity-70">
+              {t("filterFamily")}
+            </span>
+            <select
+              className="select select-bordered select-sm"
+              value={family}
+              onChange={(e) => onFamily(e.target.value)}
+            >
+              <option value="">{t("filterAll")}</option>
+              {families.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="form-control w-auto">
+            <span className="label-text text-sm opacity-70">
+              {t("filterFree")}
+            </span>
+            <select
+              className="select select-bordered select-sm"
+              value={free}
+              onChange={(e) => onFree(e.target.value as FreeFilter)}
+            >
+              <option value="all">{t("filterAll")}</option>
+              <option value="paid">{t("filterFreePaid")}</option>
+              <option value="only">{t("filterFreeOnly")}</option>
+            </select>
+          </label>
+
+          {hasFilter && (
+            <button className="btn btn-sm btn-ghost" onClick={onReset}>
+              {t("filterReset")}
+            </button>
+          )}
+        </div>
+
+        {hasFilter && (
+          <div className="flex flex-wrap gap-2">
+            {provider && (
+              <FilterBadge
+                label={`${t("filterProvider")}: ${providerName(provider)}`}
+                onClear={() => onProvider("")}
+              />
+            )}
+            {model.trim() && (
+              <FilterBadge
+                label={`${t("filterModel")}: ${model.trim()}`}
+                onClear={() => onModel("")}
+              />
+            )}
+            {family && (
+              <FilterBadge
+                label={`${t("filterFamily")}: ${family}`}
+                onClear={() => onFamily("")}
+              />
+            )}
+            {free !== "all" && (
+              <FilterBadge
+                label={`${t("filterFree")}: ${
+                  free === "only" ? t("filterFreeOnly") : t("filterFreePaid")
+                }`}
+                onClear={() => onFree("all")}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilterBadge({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="badge badge-primary gap-1">
+      {label}
+      <button
+        type="button"
+        className="cursor-pointer text-xs leading-none"
+        onClick={onClear}
+        aria-label="remove"
+      >
+        ✕
+      </button>
+    </span>
   );
 }
 
@@ -178,15 +370,107 @@ function modelNameOnly(r: ModelBreakdownRow, meta: ProviderMap | null): string {
   return mdl?.name ?? r.modelName;
 }
 
-function resolveRow(r: ModelBreakdownRow, meta: ProviderMap | null) {
-  const prov = meta?.[r.providerId];
-  const mdl = prov?.models?.[r.modelId];
-  return {
-    providerName: prov?.name ?? r.providerName,
-    modelName: mdl?.name ?? r.modelName,
-    family: mdl?.family ?? r.family,
-    contextWindow: mdl?.limit?.context ?? r.contextWindow,
-  };
+/** Total token volume of a model row (input + output + reasoning + cache read). */
+function modelVolume(r: ModelBreakdownRow): number {
+  return (
+    r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens
+  );
+}
+
+/**
+ * Top-10 models bar chart, rendered once per mode (Volumen and Kosten) as two
+ * separate cards. The card title reflects the mode and shows the sum of the
+ * displayed top-10 values as a subtitle.
+ */
+function TopModelsChart({
+  api,
+  rows,
+  meta,
+  mode,
+}: {
+  api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
+  rows: ModelBreakdownRow[];
+  meta: ProviderMap | null;
+  mode: "volume" | "cost";
+}) {
+  const top = (() => {
+    const sorted = [...rows]
+      .sort((a, b) =>
+        mode === "volume" ? modelVolume(b) - modelVolume(a) : b.cost - a.cost,
+      )
+      .slice(0, 10);
+    return sorted.map((r) => ({
+      name: modelNameOnly(r, meta),
+      value: mode === "volume" ? modelVolume(r) : r.cost,
+    }));
+  })();
+
+  const total = top.reduce((s, d) => s + d.value, 0);
+  const totalLabel = mode === "volume" ? formatTokens(total) : formatCost(total);
+
+  return (
+    <ChartCard
+      title={mode === "volume" ? t("modelsTopVolume") : t("modelsTopCost")}
+      height={320}
+      subtitle={
+        <span>
+          {t("cardTotal")}: {totalLabel}
+        </span>
+      }
+      empty={rows.length === 0}
+    >
+      <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
+        {(() => {
+          if (top.length === 0) return <EmptyState />;
+          return (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={top}
+                layout="vertical"
+                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  className="stroke-base-300"
+                  horizontal={false}
+                />
+                <XAxis
+                  type="number"
+                  tickFormatter={(v) =>
+                    mode === "volume"
+                      ? formatTokens(Number(v))
+                      : formatCost(Number(v))
+                  }
+                  fontSize={11}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={180}
+                  fontSize={10}
+                  interval={0}
+                />
+                <Tooltip
+                  formatter={(value) =>
+                    mode === "volume"
+                      ? formatTokens(Number(value ?? 0))
+                      : formatCost(Number(value ?? 0))
+                  }
+                />
+                <Bar
+                  dataKey="value"
+                  name={
+                    mode === "volume" ? t("kpiTotalTokens") : t("kpiCost")
+                  }
+                  fill="var(--color-primary)"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          );
+        })()}
+      </AsyncState>
+    </ChartCard>
+  );
 }
 
 function DonutChart({
@@ -200,7 +484,7 @@ function DonutChart({
   loading: boolean;
   error: Error | null;
   onRetry: () => void;
-  rows: ModelBreakdownRow[] | null;
+  rows: ModelBreakdownRow[];
   meta: ProviderMap | null;
   groupKey: "providerId" | "family";
 }) {
@@ -271,28 +555,42 @@ function DonutChart({
   );
 }
 
+function resolveRow(r: ModelBreakdownRow, meta: ProviderMap | null) {
+  const prov = meta?.[r.providerId];
+  const mdl = prov?.models?.[r.modelId];
+  return {
+    providerName: prov?.name ?? r.providerName,
+    modelName: mdl?.name ?? r.modelName,
+    family: mdl?.family ?? r.family,
+    contextWindow: mdl?.limit?.context ?? r.contextWindow,
+  };
+}
+
 function ModelTable({
   api,
+  rows,
   meta,
 }: {
   api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
+  rows: ModelBreakdownRow[];
   meta: ProviderMap | null;
 }) {
   const lang = useLang();
-  const [sortKey, setSortKey] = useState<SortKey>("cost");
+  const [sortKey, setSortKey] = useState<SortKey>("totalTokens");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const sorted = useMemo(() => {
-    const rows = api.data ?? [];
     const val = (r: ModelBreakdownRow): number =>
-      sortKey === "msgCount"
-        ? r.msgCount
-        : sortKey === "cost"
-          ? r.cost
-          : r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
+      sortKey === "totalTokens"
+        ? r.inputTokens + r.outputTokens + r.reasoningTokens
+        : sortKey === "msgCount"
+          ? r.msgCount
+          : sortKey === "cost"
+            ? r.cost
+            : r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => (val(a) - val(b)) * dir);
-  }, [api.data, sortKey, sortDir]);
+  }, [rows, sortKey, sortDir]);
 
   const toggle = (key: SortKey) => {
     if (key === sortKey) {
@@ -316,7 +614,7 @@ function ModelTable({
           onRetry={api.refetch}
         >
           {sorted.length === 0 ? (
-            <p className="text-base-content/60">{t("stateNoData")}</p>
+            <p className="text-base-content/60">{t("modelsFilterEmpty")}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="table table-zebra table-sm">
@@ -325,6 +623,13 @@ function ModelTable({
                     <th>{t("colProvider")}</th>
                     <th>{t("colModel")}</th>
                     <th>{t("colFamily")}</th>
+                    <th
+                      className="cursor-pointer select-none"
+                      onClick={() => toggle("totalTokens")}
+                    >
+                      {t("colTotalTokens")}
+                      {arrow("totalTokens")}
+                    </th>
                     <th
                       className="cursor-pointer select-none"
                       onClick={() => toggle("msgCount")}
@@ -354,6 +659,11 @@ function ModelTable({
                         <td>{info.providerName}</td>
                         <td>{info.modelName}</td>
                         <td>{info.family ?? "—"}</td>
+                        <td className="text-right font-medium">
+                          {formatTokens(
+                            r.inputTokens + r.outputTokens + r.reasoningTokens,
+                          )}
+                        </td>
                         <td className="text-right">
                           {formatInt(r.msgCount, lang)}
                         </td>
@@ -386,6 +696,151 @@ function ModelTable({
       </div>
     </div>
   );
+}
+
+/** Format a per-1M-token price (already in $/1M from the snapshot) as "$X.XX". */
+function formatPricePerM(price: number | undefined): string {
+  if (price == null || !Number.isFinite(price)) return "—";
+  return formatCost(price);
+}
+
+function ModelsPriceAnalysis({
+  api,
+  rows,
+  meta,
+}: {
+  api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
+  rows: ModelBreakdownRow[];
+  meta: ProviderMap | null;
+}) {
+  const sorted = useMemo(() => {
+    const withPrice = rows
+      .map((r) => {
+        const tokens =
+          r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
+        const effective = tokens > 0 ? (r.cost / tokens) * 1e6 : 0;
+        const cost = meta?.[r.providerId]?.models?.[r.modelId]?.cost as
+          | ModelCost
+          | undefined;
+        const mix = {
+          input: r.inputTokens,
+          cacheRead: r.cacheReadTokens,
+          output: r.outputTokens + r.reasoningTokens,
+        };
+        const theo =
+          (mix.input * (cost?.input ?? 0) +
+            mix.cacheRead * (cost?.cache_read ?? 0) +
+            mix.output * (cost?.output ?? 0)) /
+          1e6;
+        return { r, tokens, effective, cost, theo };
+      })
+      .filter((d) => d.tokens > 0);
+    return withPrice.sort((a, b) => b.effective - a.effective);
+  }, [rows, meta]);
+
+  const totals = useMemo(() => {
+    const sumCost = sorted.reduce((s, d) => s + d.r.cost, 0);
+    const sumTokens = sorted.reduce((s, d) => s + d.tokens, 0);
+    const avg = sumTokens > 0 ? (sumCost / sumTokens) * 1e6 : 0;
+    return { sumCost, sumTokens, avg };
+  }, [sorted]);
+
+  return (
+    <div className="card bg-base-200 shadow-sm">
+      <div className="card-body gap-2">
+        <h2 className="card-title text-base">{t("priceAnalysis")}</h2>
+        <AsyncState
+          loading={api.loading}
+          error={api.error}
+          onRetry={api.refetch}
+        >
+          {sorted.length === 0 ? (
+            <p className="text-base-content/60">{t("modelsFilterEmpty")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th>{t("colModel")}</th>
+                    <th>{t("colTokenMix")}</th>
+                    <th>{t("colListPrice")}</th>
+                    <th>{t("colEffectivePrice")}</th>
+                    <th>{t("colTheoPrice")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map(({ r, effective, cost, theo }) => (
+                    <tr key={`${r.providerId}-${r.modelId}`}>
+                      <td>
+                        <div className="font-medium">
+                          {modelNameOnly(r, meta)}
+                        </div>
+                        <div className="text-[10px] opacity-60">
+                          {r.providerName}
+                        </div>
+                      </td>
+                      <td className="text-right text-xs">
+                        <div>In {formatRatio(pct(r.inputTokens, r))}</div>
+                        <div>CR {formatRatio(pct(r.cacheReadTokens, r))}</div>
+                        <div>
+                          Out {formatRatio(pct(r.outputTokens + r.reasoningTokens, r))}
+                        </div>
+                      </td>
+                      <td className="text-right text-xs">
+                        <div>{t("priceInput")}: {formatPricePerM(cost?.input)}</div>
+                        <div>
+                          {t("priceCacheRead")}: {formatPricePerM(cost?.cache_read)}
+                        </div>
+                        <div>
+                          {t("priceOutput")}: {formatPricePerM(cost?.output)}
+                        </div>
+                      </td>
+                      <td className="text-right font-medium text-primary">
+                        {formatCost(effective)}
+                        <span className="text-[10px] opacity-60">
+                          {" "}
+                          {t("pricePerM")}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        {formatCost(theo)}
+                        <span className="text-[10px] opacity-60">
+                          {" "}
+                          {t("pricePerM")}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-semibold border-t-2 border-base-300">
+                    <td colSpan={3}>{t("footerAvgPrice")}</td>
+                    <td className="text-right text-primary">
+                      {formatCost(totals.avg)}
+                      <span className="text-[10px] opacity-60">
+                        {" "}
+                        {t("pricePerM")}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      {formatCost(totals.sumCost)} ·{" "}
+                      {formatTokens(totals.sumTokens)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </AsyncState>
+      </div>
+    </div>
+  );
+}
+
+function pct(part: number, r: ModelBreakdownRow): number {
+  const sum =
+    r.inputTokens + r.outputTokens + r.reasoningTokens + r.cacheReadTokens;
+  return sum > 0 ? part / sum : 0;
 }
 
 function CacheRatio({ ratio }: { ratio: number }) {

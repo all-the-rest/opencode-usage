@@ -77,6 +77,7 @@ export const i18n = {
     colSessions: "Sessions",
     colDirectory: "Verzeichnis",
     colAgent: "Agent",
+    colTotalTokens: "Total-Tokens",
 
     // --- Cache analysis ---
     cacheAnalysis: "Cache-Analyse",
@@ -86,6 +87,9 @@ export const i18n = {
     cacheBucketAvg: "Durchschnittliche Cache-Hit-Ratio nach Nachrichtenanzahl",
     cacheBucket: "Bucket {bucket}",
     cacheNoData: "Keine Cache-Daten verfügbar.",
+    cacheExcludedHint:
+      "Sessions mit weniger als {n} Nachrichten sind ausgeschlossen — die Cache-Hit-Ratio stabilisiert sich erst nach Kontextaufbau.",
+    cacheThreshold: "Mindest-Nachrichten",
 
     // --- Heatmap ---
     heatmapTitle: "Aktivitäts-Heatmap",
@@ -113,18 +117,43 @@ export const i18n = {
     seriesOther: "Andere",
     heatmapWeek: "Woche",
     heatmapEmpty: "Keine Aktivität",
+    chartTokenShareDay: "Token-Anteile pro Tag",
+    modeVolume: "Volumen",
+    modeCost: "Kosten",
+    cardTotal: "Gesamt",
 
     // --- Models page ---
     modelsBreakdown: "Modell-Aufschlüsselung",
     modelsByProvider: "Token-Anteil nach Anbieter",
     modelsByFamily: "Token-Anteil nach Familie",
     modelsTopCost: "Top 10 Modelle nach Kosten",
+    modelsTopVolume: "Top 10 Modelle nach Volumen",
     modelsContext: "Kontextfenster",
     modelsMetaLoading: "Modell-Metadaten werden geladen…",
     modelsMetaError: "Metadaten nicht verfügbar – DB-Namen werden verwendet.",
+    modelsFilterEmpty: "Keine Modelle für diese Filter",
+    filterProvider: "Anbieter",
+    filterModel: "Modell",
+    filterFamily: "Familie",
+    filterFree: "Preis",
+    filterAll: "Alle",
+    filterFreeOnly: "Nur gratis",
+    filterFreePaid: "Nur bezahlte",
+    filterReset: "Filter zurücksetzen",
+    priceAnalysis: "Preis-Analyse",
+    colTokenMix: "Token-Mix",
+    colListPrice: "Listenpreis / 1M",
+    colEffectivePrice: "Effektiver Preis",
+    colTheoPrice: "Theoret. Preis",
+    priceInput: "Input",
+    priceCacheRead: "Cache-Read",
+    priceOutput: "Output",
+    pricePerM: "/ 1M Tokens",
+    footerAvgPrice: "Dein Ø-Preis",
 
     // --- Projects page ---
     projectsChart: "Top-Projekte nach Kosten",
+    projectsChartVolume: "Top-Projekte nach Volumen",
     colLastActivity: "Letzte Aktivität",
     projectNone: "(ohne Projekt)",
 
@@ -215,6 +244,7 @@ export const i18n = {
     colSessions: "Sessions",
     colDirectory: "Directory",
     colAgent: "Agent",
+    colTotalTokens: "Total tokens",
 
     // --- Cache analysis ---
     cacheAnalysis: "Cache analysis",
@@ -224,6 +254,9 @@ export const i18n = {
     cacheBucketAvg: "Average cache hit ratio by message count",
     cacheBucket: "Bucket {bucket}",
     cacheNoData: "No cache data available.",
+    cacheExcludedHint:
+      "Sessions with fewer than {n} messages are excluded — the cache hit ratio only stabilizes after context build-up.",
+    cacheThreshold: "Min messages",
 
     // --- Heatmap ---
     heatmapTitle: "Activity heatmap",
@@ -251,18 +284,43 @@ export const i18n = {
     seriesOther: "Other",
     heatmapWeek: "Week",
     heatmapEmpty: "No activity",
+    chartTokenShareDay: "Token share per day",
+    modeVolume: "Volume",
+    modeCost: "Cost",
+    cardTotal: "Total",
 
     // --- Models page ---
     modelsBreakdown: "Model breakdown",
     modelsByProvider: "Token share by provider",
     modelsByFamily: "Token share by family",
     modelsTopCost: "Top 10 models by cost",
+    modelsTopVolume: "Top 10 models by volume",
     modelsContext: "Context window",
     modelsMetaLoading: "Loading model metadata…",
     modelsMetaError: "Metadata unavailable – using DB names.",
+    modelsFilterEmpty: "No models match these filters",
+    filterProvider: "Provider",
+    filterModel: "Model",
+    filterFamily: "Family",
+    filterFree: "Price",
+    filterAll: "All",
+    filterFreeOnly: "Free only",
+    filterFreePaid: "Paid only",
+    filterReset: "Reset filters",
+    priceAnalysis: "Price analysis",
+    colTokenMix: "Token mix",
+    colListPrice: "List price / 1M",
+    colEffectivePrice: "Effective price",
+    colTheoPrice: "Theoretical price",
+    priceInput: "Input",
+    priceCacheRead: "Cache read",
+    priceOutput: "Output",
+    pricePerM: "/ 1M tokens",
+    footerAvgPrice: "Your avg price",
 
     // --- Projects page ---
     projectsChart: "Top projects by cost",
+    projectsChartVolume: "Top projects by volume",
     colLastActivity: "Last activity",
     projectNone: "(no project)",
 

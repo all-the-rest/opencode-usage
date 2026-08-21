@@ -15,12 +15,14 @@ export function ChartCard({
   height = 300,
   children,
   right,
+  subtitle,
   empty = false,
 }: {
   title: string;
   height?: number;
   children: ReactNode;
   right?: ReactNode;
+  subtitle?: ReactNode;
   empty?: boolean;
 }) {
   return (
@@ -30,6 +32,9 @@ export function ChartCard({
           <h2 className="card-title text-base">{title}</h2>
           {right}
         </div>
+        {subtitle != null && (
+          <div className="text-sm text-base-content/70">{subtitle}</div>
+        )}
         {empty ? (
           <div className="flex min-h-[72px] items-center justify-center px-4 text-center">
             {children}

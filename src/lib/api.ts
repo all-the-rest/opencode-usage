@@ -58,7 +58,8 @@ export type SessionSort =
   | "cost"
   | "msgCount"
   | "cacheHitRatio"
-  | "title";
+  | "title"
+  | "tokens";
 
 export interface SessionQuery {
   limit?: number;
@@ -80,8 +81,16 @@ export function getSessions(
   return request<SessionRow[]>(`/api/stats/sessions${qs ? `?${qs}` : ""}`, signal);
 }
 
-export function getCacheAnalysis(signal?: AbortSignal): Promise<CacheAnalysis> {
-  return request<CacheAnalysis>("/api/stats/cache-analysis", signal);
+export function getCacheAnalysis(
+  minMessages = 20,
+  signal?: AbortSignal,
+): Promise<CacheAnalysis> {
+  const params = new URLSearchParams();
+  params.set("minMessages", String(minMessages));
+  return request<CacheAnalysis>(
+    `/api/stats/cache-analysis?${params}`,
+    signal,
+  );
 }
 
 export function getHeatmap(signal?: AbortSignal): Promise<HeatmapCell[]> {

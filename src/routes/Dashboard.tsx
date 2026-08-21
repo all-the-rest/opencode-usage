@@ -74,6 +74,8 @@ export default function Dashboard() {
 
       <CostTrendChart key={granularity} granularity={granularity} />
 
+      <TokenShareChart />
+
       <HeatmapCard />
     </div>
   );
@@ -276,10 +278,7 @@ function TokenTrendChart({
                 fontSize={11}
                 width={48}
               />
-              <Tooltip
-                formatter={(value) => formatTokens(Number(value ?? 0))}
-                labelFormatter={(l) => String(l)}
-              />
+              <Tooltip content={<TokenTrendTooltip />} />
               <Legend wrapperStyle={{ flexWrap: "wrap" }} />
               {series.map((s, i) => (
                 <Area
@@ -299,6 +298,30 @@ function TokenTrendChart({
         })()}
       </AsyncState>
     </ChartCard>
+  );
+}
+
+/** Custom tooltip for the stacked token trend: per-series values + day total. */
+function TokenTrendTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const total = payload.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0);
+  return (
+    <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
+      <div className="mb-1 font-medium">{label}</div>
+      {payload.map((e: any) => (
+        <div key={e.dataKey} className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ backgroundColor: e.color }}
+          />
+          <span>{e.name}:</span>
+          <span>{formatTokens(Number(e.value) || 0)}</span>
+        </div>
+      ))}
+      <div className="mt-1 border-t border-base-300 pt-1 font-medium">
+        {t("cardTotal")}: {formatTokens(total)}
+      </div>
+    </div>
   );
 }
 
@@ -354,6 +377,130 @@ function CostTrendChart({ granularity }: { granularity: Granularity }) {
         })()}
       </AsyncState>
     </ChartCard>
+  );
+}
+
+// --- Token share per day (100% stacked AreaChart) ---
+
+const SHARE_CATS = [
+  { key: "input", field: "inputTokens", labelKey: "tokInput", color: "var(--color-primary)" },
+  { key: "cacheRead", field: "cacheReadTokens", labelKey: "tokCacheRead", color: "var(--color-info)" },
+  { key: "output", field: "outputTokens", labelKey: "tokOutput", color: "var(--color-secondary)" },
+  { key: "reasoning", field: "reasoningTokens", labelKey: "tokReasoning", color: "var(--color-accent)" },
+] as const;
+
+type ShareRow = Record<string, number | string>;
+
+function TokenShareChart() {
+  const api = usePoll((signal) => getTimeseries("day", "total", signal));
+
+  // Aggregate per day (groupBy="total" -> one point per day) and normalize the
+  // four categories to a 0-100% share; keep absolute values for the tooltip.
+  const rows: ShareRow[] = (() => {
+    const pts = api.data?.points ?? [];
+    const byDay = new Map<string, ShareRow>();
+    for (const p of pts) {
+      const row = byDay.get(p.day) ?? { day: p.day };
+      for (const c of SHARE_CATS) {
+        row[c.key] = ((row[c.key] as number) ?? 0) + (p[c.field] as number);
+      }
+      byDay.set(p.day, row);
+    }
+    const out: ShareRow[] = [];
+    for (const row of byDay.values()) {
+      const sum =
+        SHARE_CATS.reduce((s, c) => s + (row[c.key] as number), 0) || 1;
+      const r: ShareRow = { day: String(row.day), total: sum };
+      for (const c of SHARE_CATS) {
+        const abs = row[c.key] as number;
+        r[c.key] = abs;
+        r[`${c.key}Pct`] = (abs / sum) * 100;
+      }
+      out.push(r);
+    }
+    return out;
+  })();
+
+  return (
+    <ChartCard
+      title={t("chartTokenShareDay")}
+      height={340}
+      empty={rows.length === 0}
+    >
+      <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
+        {(() => {
+          if (rows.length === 0) return <EmptyState />;
+          return (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={rows}
+                margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  className="stroke-base-300"
+                />
+                <XAxis
+                  dataKey="day"
+                  tickFormatter={shortDay}
+                  fontSize={11}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tickFormatter={(v) => `${Number(v)}%`}
+                  fontSize={11}
+                  width={44}
+                />
+                <Tooltip content={<TokenShareTooltip cats={SHARE_CATS} />} />
+                <Legend wrapperStyle={{ flexWrap: "wrap" }} />
+                {SHARE_CATS.map((c) => (
+                  <Area
+                    key={c.key}
+                    type="monotone"
+                    dataKey={`${c.key}Pct`}
+                    name={t(c.labelKey)}
+                    stackId="1"
+                    fill={c.color}
+                    stroke={c.color}
+                    fillOpacity={0.7}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          );
+        })()}
+      </AsyncState>
+    </ChartCard>
+  );
+}
+
+function TokenShareTooltip({ active, payload, cats }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
+      <div className="mb-1 font-medium">{row.day}</div>
+      {cats.map((c: any) => {
+        const abs = Number(row[c.key]) || 0;
+        const pct = Number(row[`${c.key}Pct`]) || 0;
+        return (
+          <div key={c.key} className="flex items-center gap-1.5">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: c.color }}
+            />
+            <span>{t(c.labelKey)}:</span>
+            <span>{formatTokens(abs)}</span>
+            <span className="text-base-content/60">({pct.toFixed(1)}%)</span>
+          </div>
+        );
+      })}
+      <div className="mt-1 border-t border-base-300 pt-1 font-medium">
+        {t("cardTotal")}: {formatTokens(Number(row.total) || 0)}
+      </div>
+    </div>
   );
 }
 

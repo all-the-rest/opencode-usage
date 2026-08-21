@@ -5,6 +5,7 @@
  *    messages, tokens, cost, last activity (relative time)
  */
 
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -15,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { getProjects, usePoll } from "../lib/api";
+import type { ProjectRow } from "../lib/types";
 import {
   basename,
   formatCost,
@@ -25,25 +27,44 @@ import {
 import { t, useLang } from "../lib/i18n";
 import { AsyncState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
+import { ModeSwitch, type ViewMode } from "../components/ModeSwitch";
 
 export default function Projects() {
   const api = usePoll(getProjects);
   const lang = useLang();
+  const [mode, setMode] = useState<ViewMode>("volume");
+
+  const volumeOf = (p: ProjectRow) =>
+    p.inputTokens + p.outputTokens + p.reasoningTokens + p.cacheReadTokens;
 
   const top = [...(api.data ?? [])]
-    .sort((a, b) => b.cost - a.cost)
+    .sort((a, b) =>
+      mode === "volume" ? volumeOf(b) - volumeOf(a) : b.cost - a.cost,
+    )
     .slice(0, 12)
     .map((p) => ({
       name: p.name ?? basename(p.directory),
       dir: p.directory,
-      cost: p.cost,
+      value: mode === "volume" ? volumeOf(p) : p.cost,
     }));
+
+  const total = top.reduce((s, d) => s + d.value, 0);
+  const totalLabel = mode === "volume" ? formatTokens(total) : formatCost(total);
 
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">{t("routeProjects")}</h1>
 
-      <ChartCard title={t("projectsChart")} height={360}>
+      <ChartCard
+        title={mode === "volume" ? t("projectsChartVolume") : t("projectsChart")}
+        height={360}
+        right={<ModeSwitch value={mode} onChange={setMode} />}
+        subtitle={
+          <span>
+            {t("cardTotal")}: {totalLabel}
+          </span>
+        }
+      >
         <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
           {(() => {
             const list = api.data ?? [];
@@ -62,7 +83,11 @@ export default function Projects() {
                 />
                 <XAxis
                   type="number"
-                  tickFormatter={(v) => formatCost(Number(v))}
+                  tickFormatter={(v) =>
+                    mode === "volume"
+                      ? formatTokens(Number(v))
+                      : formatCost(Number(v))
+                  }
                   fontSize={11}
                 />
                 <YAxis
@@ -71,10 +96,13 @@ export default function Projects() {
                   width={130}
                   fontSize={10}
                 />
-                <Tooltip content={<ProjectTooltip />} cursor={{ fill: "var(--color-base-300)", opacity: 0.3 }} />
+                <Tooltip
+                  content={<ProjectTooltip mode={mode} />}
+                  cursor={{ fill: "var(--color-base-300)", opacity: 0.3 }}
+                />
                 <Bar
-                  dataKey="cost"
-                  name={t("kpiCost")}
+                  dataKey="value"
+                  name={mode === "volume" ? t("kpiTotalTokens") : t("kpiCost")}
                   fill="var(--color-primary)"
                 />
                 </BarChart>
@@ -156,13 +184,15 @@ export default function Projects() {
   );
 }
 
-function ProjectTooltip({ active, payload }: any) {
+function ProjectTooltip({ active, payload, mode }: any) {
   if (!active || !payload?.length) return null;
-  const p = payload[0].payload as { dir: string; cost: number };
+  const p = payload[0].payload as { dir: string; value: number };
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
       <div className="font-medium">{p.dir}</div>
-      <div>{formatCost(p.cost)}</div>
+      <div>
+        {mode === "volume" ? formatTokens(p.value) : formatCost(p.value)}
+      </div>
     </div>
   );
 }

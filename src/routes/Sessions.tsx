@@ -51,9 +51,10 @@ type Dir = "asc" | "desc";
 
 export default function Sessions() {
   const [offset, setOffset] = useState(0);
-  const [sort, setSort] = useState<SessionSort>("timeCreated");
+  const [sort, setSort] = useState<SessionSort>("tokens");
   const [dir, setDir] = useState<Dir>("desc");
   const [filter, setFilter] = useState("");
+  const [minMessages, setMinMessages] = useState(20);
 
   const setSortField = (next: SessionSort) => {
     if (next === sort) {
@@ -68,7 +69,10 @@ export default function Sessions() {
     <div className="space-y-6">
       <h1 className="text-3xl font-bold">{t("routeSessions")}</h1>
 
-      <CacheAnalysisSection />
+      <CacheAnalysisSection
+        minMessages={minMessages}
+        onMinMessages={setMinMessages}
+      />
 
       <div className="card bg-base-200 shadow-sm">
         <div className="card-body gap-3">
@@ -100,13 +104,58 @@ export default function Sessions() {
 
 // --- Cache analysis ---
 
-function CacheAnalysisSection() {
-  const api = usePoll(getCacheAnalysis);
-
+function CacheAnalysisSection({
+  minMessages,
+  onMinMessages,
+}: {
+  minMessages: number;
+  onMinMessages: (n: number) => void;
+}) {
   return (
     <div className="space-y-4">
-      <h2 className="text-2xl font-semibold">{t("cacheAnalysis")}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-2xl font-semibold">{t("cacheAnalysis")}</h2>
+        <ThresholdSelect value={minMessages} onChange={onMinMessages} />
+      </div>
+      <p className="text-sm text-base-content/70">
+        {t("cacheExcludedHint", { n: minMessages })}
+      </p>
 
+      <CacheAnalysisData key={minMessages} minMessages={minMessages} />
+    </div>
+  );
+}
+
+function ThresholdSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm opacity-70">{t("cacheThreshold")}</span>
+      <select
+        className="select select-bordered select-xs"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      >
+        {[10, 20, 50].map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function CacheAnalysisData({ minMessages }: { minMessages: number }) {
+  const api = usePoll((signal) => getCacheAnalysis(minMessages, signal));
+
+  return (
+    <>
       <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
         {(() => {
           const data = api.data;
@@ -125,16 +174,12 @@ function CacheAnalysisSection() {
         })()}
       </AsyncState>
 
-      {(() => {
-        const data = api.data;
-        const empty = !data || data.bucketAverages.length === 0;
-        return (
-          <ChartCard title={t("cacheBucketAvg")} height={260} empty={empty}>
-            <AsyncState
-              loading={api.loading}
-              error={api.error}
-              onRetry={api.refetch}
-            >
+      <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
+        {(() => {
+          const data = api.data;
+          const empty = !data || data.bucketAverages.length === 0;
+          return (
+            <ChartCard title={t("cacheBucketAvg")} height={260} empty={empty}>
               {(() => {
                 if (empty) return <EmptyState />;
                 return (
@@ -177,11 +222,11 @@ function CacheAnalysisSection() {
                   </ResponsiveContainer>
                 );
               })()}
-            </AsyncState>
-          </ChartCard>
-        );
-      })()}
-    </div>
+            </ChartCard>
+          );
+        })()}
+      </AsyncState>
+    </>
   );
 }
 
