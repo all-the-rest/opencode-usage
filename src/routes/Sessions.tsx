@@ -23,6 +23,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 import {
   getCacheAnalysis,
@@ -32,14 +33,16 @@ import {
 } from "../lib/api";
 import type { CacheAnalysis, SessionRow } from "../lib/types";
 import {
+  basename,
   formatCost,
   formatDate,
   formatInt,
   formatRatio,
+  formatSessionTitle,
   formatTokens,
 } from "../lib/format";
 import { t, useLang, type Lang, type TranslationKey } from "../lib/i18n";
-import { AsyncState } from "../components/Async";
+import { AsyncState, EmptyState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 
 const PAGE = 50;
@@ -122,47 +125,62 @@ function CacheAnalysisSection() {
         })()}
       </AsyncState>
 
-      <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
-        {(() => {
-          const data = api.data;
-          if (!data || data.bucketAverages.length === 0) return null;
-          return (
-            <ChartCard title={t("cacheBucketAvg")} height={260}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={data.bucketAverages.map((b) => ({
-                    bucket: b.bucket,
-                    avg: Math.round(b.avgCacheHitRatio * 100),
-                    count: b.count,
-                  }))}
-                  margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
-                >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  className="stroke-base-300"
-                />
-                <XAxis dataKey="bucket" fontSize={11} />
-                <YAxis
-                  domain={[0, 100]}
-                  tickFormatter={(v) => `${Number(v)}%`}
-                  fontSize={11}
-                  width={44}
-                />
-                <Tooltip
-                  formatter={(value, name) =>
-                    name === "avg"
-                      ? `${Number(value)}%`
-                      : `${Number(value)}`
-                  }
-                  labelFormatter={(l) => t("cacheBucket", { bucket: String(l) })}
-                />
-                <Bar dataKey="avg" name="avg" fill="var(--color-secondary)" />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          );
-        })()}
-      </AsyncState>
+      {(() => {
+        const data = api.data;
+        const empty = !data || data.bucketAverages.length === 0;
+        return (
+          <ChartCard title={t("cacheBucketAvg")} height={260} empty={empty}>
+            <AsyncState
+              loading={api.loading}
+              error={api.error}
+              onRetry={api.refetch}
+            >
+              {(() => {
+                if (empty) return <EmptyState />;
+                return (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={data.bucketAverages.map((b) => ({
+                        bucket: b.bucket,
+                        avg: Math.round(b.avgCacheHitRatio * 100),
+                        count: b.count,
+                      }))}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        className="stroke-base-300"
+                      />
+                      <XAxis dataKey="bucket" fontSize={11} />
+                      <YAxis
+                        domain={[0, 100]}
+                        tickFormatter={(v) => `${Number(v)}%`}
+                        fontSize={11}
+                        width={44}
+                      />
+                      <Tooltip
+                        formatter={(value, name) =>
+                          name === "avg"
+                            ? `${Number(value)}%`
+                            : `${Number(value)}`
+                        }
+                        labelFormatter={(l) =>
+                          t("cacheBucket", { bucket: String(l) })
+                        }
+                      />
+                      <Bar
+                        dataKey="avg"
+                        name="avg"
+                        fill="var(--color-secondary)"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                );
+              })()}
+            </AsyncState>
+          </ChartCard>
+        );
+      })()}
     </div>
   );
 }
@@ -184,60 +202,84 @@ function ScatterPlot({ data }: { data: CacheAnalysis }) {
     cost: p.cost,
   }));
 
+  const pearson = data.pearsonCorrelation;
+  const weak = pearson != null && Math.abs(pearson) < 0.5;
+
   let regression: { x: number; y: number }[] | null = null;
   if (data.linearFit && points.length >= 2) {
+    const fit = data.linearFit;
     const xs = points.map((p) => p.x);
     const xMin = Math.min(...xs);
     const xMax = Math.max(...xs);
+    const predict = (x: number) =>
+      clamp(Math.round((fit.slope * x + fit.intercept) * 100), 0, 100);
     regression = [
-      { x: xMin, y: Math.round((data.linearFit.slope * xMin + data.linearFit.intercept) * 100) },
-      { x: xMax, y: Math.round((data.linearFit.slope * xMax + data.linearFit.intercept) * 100) },
+      { x: xMin, y: predict(xMin) },
+      { x: xMax, y: predict(xMax) },
     ];
   }
 
   const rLabel =
-    data.pearsonCorrelation != null
-      ? t("cacheRegression", { r: data.pearsonCorrelation.toFixed(2) })
+    pearson != null
+      ? t("cacheRegression", { r: pearson.toFixed(2) })
       : t("seriesOther");
+
+  // Weak correlation (|pearson| < 0.5): neutral, dashed line. Otherwise a
+  // strong accent color. Never let the line stretch the [0,100] axis.
+  const lineStyle = weak
+    ? {
+        stroke: "var(--color-base-content)",
+        strokeWidth: 2.5,
+        strokeDasharray: "6 4",
+      }
+    : { stroke: "var(--color-error)", strokeWidth: 2.5 };
 
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-      <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
-      <XAxis
-        type="number"
-        dataKey="x"
-        name={t("cacheScatterX")}
-        fontSize={11}
-        tickFormatter={(v) => formatInt(Number(v), "en")}
-      />
-      <YAxis
-        type="number"
-        dataKey="y"
-        name={t("cacheScatterY")}
-        domain={[0, 100]}
-        fontSize={11}
-        width={44}
-        tickFormatter={(v) => `${Number(v)}%`}
-      />
-      <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3" }} />
-      <Legend />
-      <Scatter
-        name={t("routeSessions")}
-        data={points}
-        fill="var(--color-primary)"
-      />
-      {regression && (
-        <Scatter
-          name={rLabel}
-          data={regression}
-          line={{ stroke: "var(--color-error)", strokeWidth: 2 }}
-          legendType="none"
+        <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
+        <XAxis
+          type="number"
+          dataKey="x"
+          name={t("cacheScatterX")}
+          fontSize={11}
+          tickFormatter={(v) => formatInt(Number(v), "en")}
+          interval="preserveStartEnd"
         />
-      )}
+        <YAxis
+          type="number"
+          dataKey="y"
+          name={t("cacheScatterY")}
+          domain={[0, 100]}
+          fontSize={11}
+          width={44}
+          tickFormatter={(v) => `${Number(v)}%`}
+        />
+        {/* Fixed point size (~r=3) for the scatter dots. */}
+        <ZAxis range={[28, 28]} />
+        <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: "3 3" }} />
+        <Legend />
+        <Scatter
+          name={t("routeSessions")}
+          data={points}
+          fill="var(--color-primary)"
+          fillOpacity={0.5}
+        />
+        {regression && (
+          <Scatter
+            name={rLabel}
+            data={regression}
+            line={lineStyle}
+            legendType="none"
+          />
+        )}
       </ScatterChart>
     </ResponsiveContainer>
   );
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
 }
 
 function ScatterTooltip({ active, payload }: any) {
@@ -249,7 +291,7 @@ function ScatterTooltip({ active, payload }: any) {
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
       <div className="font-medium">
-        {p.title ?? t("sessionsUntitled")}
+        {formatSessionTitle(p.title, "en")}
       </div>
       <div>{t("cacheScatterX")}: {formatInt(p.x, "en")}</div>
       <div>{t("cacheScatterY")}: {p.y}%</div>
@@ -441,12 +483,19 @@ function SessionRowItem({
         onClick={onToggle}
         aria-expanded={expanded}
       >
-        <td className="font-medium">{row.title ?? t("sessionsUntitled")}</td>
+        <td className="max-w-[22rem]">
+          <div
+            className="line-clamp-2 font-medium"
+            title={row.title ?? undefined}
+          >
+            {formatSessionTitle(row.title, lang)}
+          </div>
+        </td>
         <td
           className="max-w-[14rem] truncate text-base-content/70"
           title={row.directory}
         >
-          {row.directory}
+          {basename(row.directory)}
         </td>
         <td className="text-right">{formatInt(row.msgCount, lang)}</td>
         <td className="text-right">{formatCost(row.cost)}</td>
@@ -487,7 +536,7 @@ function SessionDetail({ row, lang }: { row: SessionRow; lang: Lang }) {
       <div className="space-y-1 text-sm">
         <div>
           <span className="opacity-60">{t("sessionsDetail")}: </span>
-          {row.title ?? t("sessionsUntitled")}
+          {formatSessionTitle(row.title, lang)}
         </div>
         <div>
           <span className="opacity-60">{t("colDirectory")}: </span>

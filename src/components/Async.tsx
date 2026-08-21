@@ -42,6 +42,16 @@ export function ErrorState({
   );
 }
 
+/**
+ * Compact, actionable empty-state message for charts/tables that have no data
+ * yet. Renders the shared `chartEmpty` string.
+ */
+export function EmptyState() {
+  return (
+    <p className="text-center text-sm text-base-content/60">{t("chartEmpty")}</p>
+  );
+}
+
 /** Render spinner while loading, error block on error, else children. */
 export function AsyncState({
   loading,

@@ -116,7 +116,7 @@ export default function Projects() {
                       {list.map((p) => (
                         <tr key={p.projectId}>
                           <td className="font-medium">
-                            {p.name ?? basename(p.directory)}
+                            {p.name ?? t("projectNone")}
                           </td>
                           <td
                             className="max-w-[16rem] truncate text-base-content/70"

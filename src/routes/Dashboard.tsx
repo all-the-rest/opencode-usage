@@ -9,7 +9,7 @@
  * retry states through the shared components.
  */
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -32,6 +32,7 @@ import type { Granularity, GroupBy, HeatmapCell, TimeseriesPoint } from "../lib/
 import {
   formatCost,
   formatDate,
+  formatDayMonth,
   formatInt,
   formatRatio,
   formatTokens,
@@ -39,7 +40,7 @@ import {
   shortMonth,
 } from "../lib/format";
 import { t, useLang, type Lang } from "../lib/i18n";
-import { AsyncState, ErrorState, Spinner } from "../components/Async";
+import { AsyncState, EmptyState, ErrorState, Spinner } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { KpiCard } from "../components/KpiCard";
 import { paletteColor } from "../components/colors";
@@ -88,16 +89,26 @@ function SummaryKpis() {
   const s = summary.data;
   if (!s) return <p className="text-base-content/60">{t("stateNoData")}</p>;
 
-  const period =
-    s.firstMessageAt != null || s.lastMessageAt != null
-      ? `${t("kpiFrom", { from: formatDate(s.firstMessageAt, lang) })} · ${t(
-          "kpiTo",
-          { to: formatDate(s.lastMessageAt, lang) },
-        )}`
-      : t("stateNoData");
+  const f = s.firstMessageAt;
+  const l = s.lastMessageAt;
+  let periodValue = "—";
+  let periodHint: string | undefined;
+  if (f != null && l != null) {
+    periodValue = `${formatDayMonth(f, lang)}–${formatDayMonth(l, lang)}`;
+    periodHint = `${t("kpiFrom", { from: formatDate(f, lang) })} · ${t(
+      "kpiTo",
+      { to: formatDate(l, lang) },
+    )}`;
+  } else if (f != null || l != null) {
+    periodValue = formatDate(f ?? l, lang);
+    periodHint = `${t("kpiFrom", { from: formatDate(f, lang) })} · ${t(
+      "kpiTo",
+      { to: formatDate(l, lang) },
+    )}`;
+  }
 
   return (
-    <div className="stats stats-vertical lg:stats-horizontal w-full shadow">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
       <KpiCard label={t("kpiTotalTokens")} value={formatTokens(s.totalTokens)} />
       <KpiCard label={t("kpiCost")} value={formatCost(s.totalCost)} />
       <KpiCard label={t("kpiSessions")} value={formatInt(s.sessionCount, lang)} />
@@ -106,7 +117,7 @@ function SummaryKpis() {
         label={t("kpiCacheHitRatio")}
         value={formatRatio(s.avgCacheHitRatio)}
       />
-      <KpiCard label={t("kpiPeriod")} value="—" hint={period} />
+      <KpiCard label={t("kpiPeriod")} value={periodValue} hint={periodHint} />
     </div>
   );
 }
@@ -243,18 +254,23 @@ function TokenTrendChart({
           <GroupBySwitch value={groupBy} onChange={onGroupBy} />
         </div>
       }
+      empty={(api.data?.points?.length ?? 0) === 0}
     >
       <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
         {(() => {
           const pts = api.data?.points ?? [];
-          if (pts.length === 0)
-            return <p className="text-base-content/60">{t("stateNoData")}</p>;
+          if (pts.length === 0) return <EmptyState />;
           const { rows, series } = buildTokenRows(pts, groupBy);
           return (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
-              <XAxis dataKey="day" tickFormatter={tickFmt} fontSize={11} />
+              <XAxis
+                dataKey="day"
+                tickFormatter={tickFmt}
+                fontSize={11}
+                interval="preserveStartEnd"
+              />
               <YAxis
                 tickFormatter={(v) => formatTokens(Number(v))}
                 fontSize={11}
@@ -264,7 +280,7 @@ function TokenTrendChart({
                 formatter={(value) => formatTokens(Number(value ?? 0))}
                 labelFormatter={(l) => String(l)}
               />
-              <Legend />
+              <Legend wrapperStyle={{ flexWrap: "wrap" }} />
               {series.map((s, i) => (
                 <Area
                   key={s.key}
@@ -292,12 +308,15 @@ function CostTrendChart({ granularity }: { granularity: Granularity }) {
     granularity === "day" ? shortDay(day) : shortMonth(day);
 
   return (
-    <ChartCard title={t("chartCostTrend")} height={260}>
+    <ChartCard
+      title={t("chartCostTrend")}
+      height={260}
+      empty={(api.data?.points?.length ?? 0) === 0}
+    >
       <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
         {(() => {
           const pts = api.data?.points ?? [];
-          if (pts.length === 0)
-            return <p className="text-base-content/60">{t("stateNoData")}</p>;
+          if (pts.length === 0) return <EmptyState />;
           const byDay = new Map<string, number>();
           for (const p of pts)
             byDay.set(p.day, (byDay.get(p.day) ?? 0) + p.cost);
@@ -306,7 +325,12 @@ function CostTrendChart({ granularity }: { granularity: Granularity }) {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
-              <XAxis dataKey="day" tickFormatter={tickFmt} fontSize={11} />
+              <XAxis
+                dataKey="day"
+                tickFormatter={tickFmt}
+                fontSize={11}
+                interval="preserveStartEnd"
+              />
               <YAxis
                 tickFormatter={(v) => formatCost(Number(v))}
                 fontSize={11}
@@ -361,8 +385,7 @@ function HeatmapCard() {
         <AsyncState loading={api.loading} error={api.error} onRetry={api.refetch}>
           {(() => {
             const cells = api.data ?? [];
-            if (cells.length === 0)
-              return <p className="text-base-content/60">{t("stateNoData")}</p>;
+            if (cells.length === 0) return <EmptyState />;
             return <HeatmapGrid cells={cells} lang={lang} />;
           })()}
         </AsyncState>
@@ -391,61 +414,67 @@ function HeatmapGrid({ cells, lang }: { cells: HeatmapCell[]; lang: Lang }) {
   const weeks = [...weekMap.keys()].sort();
   // Keep the most recent ~24 weeks for readability.
   const visible = weeks.slice(-24);
+  const n = visible.length;
 
   const intensity = (count: number) =>
     count <= 0 ? 0 : 0.15 + 0.85 * (count / (max || 1));
 
+  // CSS grid: a fixed label column + one flexible column per week so the
+  // heatmap fills the full card width; cells stay square via aspect-square.
   return (
-    <div className="overflow-x-auto">
-      <div className="flex gap-2">
-        {/* Hour labels */}
-        <div className="flex flex-col gap-[3px] pt-5">
-          {Array.from({ length: 24 }, (_, h) => (
-            <div
-              key={h}
-              className="flex h-3.5 items-center justify-end pr-1 text-[10px] text-base-content/50"
-            >
-              {h % 6 === 0 ? h : ""}
-            </div>
-          ))}
-        </div>
-
-        {/* Week columns */}
+    <div className="max-h-[60vh] overflow-auto">
+      <div
+        className="grid gap-[3px]"
+        style={{ gridTemplateColumns: `2.5rem repeat(${n}, minmax(0, 1fr))` }}
+      >
+        {/* Corner + week headers (sticky top) */}
+        <div className="sticky top-0 left-0 z-20 bg-base-200" />
         {visible.map((wk) => {
-          const hours = weekMap.get(wk)!;
-          const label = formatDate(
-            new Date(wk + "T00:00:00").getTime(),
-            lang,
-          );
+          const label = formatDate(new Date(wk + "T00:00:00").getTime(), lang);
           return (
-            <div key={wk} className="flex flex-col gap-[3px]" title={label}>
-              <div className="h-4 truncate text-[10px] text-base-content/50" title={label}>
-                {shortDay(wk)}
-              </div>
-              {Array.from({ length: 24 }, (_, h) => {
-                const count = hours.get(h) ?? 0;
-                const pct = intensity(count);
-                const bg =
-                  count > 0
-                    ? `color-mix(in oklab, var(--color-primary) ${Math.round(
-                        pct * 100,
-                      )}%, transparent)`
-                    : "var(--color-base-300)";
-                return (
-                  <div
-                    key={h}
-                    className="h-3.5 w-3.5 rounded-[2px]"
-                    style={{ backgroundColor: bg }}
-                    title={`${label} · ${t("heatmapHour", { hour: h })} · ${t(
-                      "heatmapCount",
-                      { count: count },
-                    )}`}
-                  />
-                );
-              })}
+            <div
+              key={wk}
+              className="sticky top-0 z-10 truncate bg-base-200 text-center text-[10px] text-base-content/50"
+              title={label}
+            >
+              {shortDay(wk)}
             </div>
           );
         })}
+
+        {/* 24 hour rows (label column sticky left) */}
+        {Array.from({ length: 24 }, (_, h) => (
+          <Fragment key={h}>
+            <div className="sticky left-0 z-10 flex items-center justify-end bg-base-200 pr-1 text-[10px] text-base-content/50">
+              {h % 6 === 0 ? h : ""}
+            </div>
+            {visible.map((wk) => {
+              const count = weekMap.get(wk)!.get(h) ?? 0;
+              const pct = intensity(count);
+              const bg =
+                count > 0
+                  ? `color-mix(in oklab, var(--color-primary) ${Math.round(
+                      pct * 100,
+                    )}%, transparent)`
+                  : "var(--color-base-300)";
+              const label = formatDate(
+                new Date(wk + "T00:00:00").getTime(),
+                lang,
+              );
+              return (
+                <div
+                  key={wk}
+                  className="aspect-square w-full rounded-[2px]"
+                  style={{ backgroundColor: bg }}
+                  title={`${label} · ${t("heatmapHour", { hour: h })} · ${t(
+                    "heatmapCount",
+                    { count: count },
+                  )}`}
+                />
+              );
+            })}
+          </Fragment>
+        ))}
       </div>
     </div>
   );

@@ -49,6 +49,8 @@ export const i18n = {
     stateErrorDetail: "Fehler: {message}",
     stateRetry: "Erneut versuchen",
     stateNoData: "Keine Daten verfügbar.",
+    chartEmpty:
+      "Keine Daten vorhanden. Starte opencode und nutze es normal – dieses Dashboard sammelt deinen Verbrauch.",
 
     // --- Generic ---
     commonComingSoon: "Diese Seite wird noch implementiert.",
@@ -124,6 +126,7 @@ export const i18n = {
     // --- Projects page ---
     projectsChart: "Top-Projekte nach Kosten",
     colLastActivity: "Letzte Aktivität",
+    projectNone: "(ohne Projekt)",
 
     // --- Sessions page ---
     sessionsFilter: "Filtern (Titel / Verzeichnis)…",
@@ -133,6 +136,7 @@ export const i18n = {
     sessionsDetail: "Sitzungsdetails",
     sessionsBreakdown: "Token-Aufschlüsselung",
     sessionsUntitled: "Ohne Titel",
+    sessionsNew: "Neue Session",
 
     // --- Cache analysis (extended) ---
     cacheRegression: "Regression (r = {r})",
@@ -183,6 +187,8 @@ export const i18n = {
     stateErrorDetail: "Error: {message}",
     stateRetry: "Retry",
     stateNoData: "No data available.",
+    chartEmpty:
+      "No data yet. Start opencode and use it normally — this dashboard collects your usage.",
 
     // --- Generic ---
     commonComingSoon: "This page is not implemented yet.",
@@ -258,6 +264,7 @@ export const i18n = {
     // --- Projects page ---
     projectsChart: "Top projects by cost",
     colLastActivity: "Last activity",
+    projectNone: "(no project)",
 
     // --- Sessions page ---
     sessionsFilter: "Filter (title / directory)…",
@@ -267,6 +274,7 @@ export const i18n = {
     sessionsDetail: "Session details",
     sessionsBreakdown: "Token breakdown",
     sessionsUntitled: "Untitled",
+    sessionsNew: "New session",
 
     // --- Cache analysis (extended) ---
     cacheRegression: "Regression (r = {r})",

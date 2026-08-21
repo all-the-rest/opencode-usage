@@ -7,7 +7,7 @@
  *  - Ratio:  input is a fraction in [0,1], rendered as "x.x%"
  */
 
-import type { Lang } from "./i18n";
+import { t, type Lang } from "./i18n";
 
 /** Compact token formatting: K / M / B suffixes. */
 export function formatTokens(n: number): string {
@@ -94,4 +94,35 @@ export function basename(path: string): string {
   const cleaned = path.replace(/\/+$/, "");
   const idx = cleaned.lastIndexOf("/");
   return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
+}
+
+const DM_LOCALE: Record<Lang, string> = { de: "de-DE", en: "en-US" };
+
+/** Compact day + month for KPI date ranges, e.g. "26.07." (de) / "Jul 26" (en). */
+export function formatDayMonth(ms: number, lang: Lang): string {
+  if (!Number.isFinite(ms)) return "—";
+  return new Intl.DateTimeFormat(DM_LOCALE[lang], {
+    day: "2-digit",
+    month: lang === "de" ? "2-digit" : "short",
+  }).format(new Date(ms));
+}
+
+const UNTITLED_RE = /^New session\s*[–-]\s*(.+)$/;
+
+/**
+ * Display label for a session title. opencode persists auto-generated titles as
+ * "New session – <ISO timestamp>"; render those localized (i18n label + a
+ * formatted date) instead of the raw string. Null titles fall back to the
+ * untitled label.
+ */
+export function formatSessionTitle(title: string | null, lang: Lang): string {
+  if (title == null) return t("sessionsUntitled");
+  const m = UNTITLED_RE.exec(title);
+  if (m && m[1] != null) {
+    const ts = Date.parse(m[1]);
+    if (!Number.isNaN(ts)) {
+      return `${t("sessionsNew")} · ${formatDate(ts, lang)}`;
+    }
+  }
+  return title;
 }
