@@ -60,6 +60,49 @@
         4 Seiten (leerer State + State mit echten Daten aus laufender API),
         Analyse durch Vision-Subagent, daraus abgeleitete Verbesserungs-Todos
         hier eintragen und umsetzen
+        <!-- Captures + 5 Vision-Batches ERFOLGT (56 PNGs). Findings ->
+             Todos 16-18. Re-Capture + Diff-Verify nach Fixes. -->
+
+## UI-Review Findings (aus 5 Vision-Batches, konsolidiert)
+- [ ] 16. CRITICAL/HIGH Chart-Fixes:
+        a) Models: Donut-Charts (Anbieter/Familie) haben KEINE Legende ->
+           Legende mit Farbboxen+Labels ergänzen (nutzlos ohne)
+        b) Dashboard: Heatmap nutzt nur ~20% der Kartenbreite -> Grid auf
+           Containerbreite strecken
+        c) Models: Top-10-Kosten-Bar-Chart Labels geclippt (45° gedreht,
+           abgeschnitten) -> horizontales Layout (Bar layout="vertical")
+           bzw. Labels kürzen
+        d) Sessions Scatterplot: YAxis domain [0,100] erzwingen
+           (Regressionsgerade extrapoliert bis 179%!), Regressionspunkte
+           auf 100 klemmen, Dot opacity 0.5 / r 3 gegen Overplotting,
+           Regressionslinie bei |r|<0.5 grau/gestrichelt + strokeWidth 2.5
+        e) Sessions Empty-State: Bucket-Chart rendert volle Achsen ohne
+           Daten -> wie Dashboard-Charts leeren State zeigen
+- [ ] 17. HIGH/MEDIUM Tabellen- & Layout-Fixes:
+        a) Projects-Tabelle Mobile: 3. Spalte abgeschnitten -> overflow-x-auto
+           Wrapper
+        b) Sessions-Tabelle: Verzeichnis-Spalte zeigt volle Pfade -> nur
+           Basename, voller Pfad im title-Attribut (~40% Breite sparen)
+        c) Sessions-Titel: line-clamp-2 statt unbegrenzter Zeilen
+        d) Projects: Orphan-Zeile ohne Name -> Fallback "(ohne Projekt)"
+        e) Models Tabelle: Cache-Ratio 0% fast unsichtbar -> Badge statt
+           Mini-Kreis; Familien-Slugs durch lesbare Namen aus models.dev-
+           Metadaten ersetzen wo vorhanden
+        f) KPI "Zeitraum" zeigt nur "--" -> Datumsbereich als Wert anzeigen
+        g) i18n prüfen: Vision meldet Tippfehler "Durchscnittliche" ->
+           tatsächlichen String in i18n.ts verifizieren und korrigieren
+- [ ] 18. MEDIUM/LOW Mobile & Polish:
+        a) Dashboard Mobile: Filter-Buttons kollidieren mit Kartentitel ->
+           gestapelt (flex-col) auf Mobile
+        b) Dashboard Mobile: KPI-Karten als grid-cols-2 statt gestapelt
+        c) Charts Mobile: X-Achsen-Ticks reduzieren, Legende umbrechbar
+        d) Empty-States: Kartenhöhe bei leeren Daten reduzieren (statt
+           350-400px Leerraum), Text actionabler ("Starte opencode, um
+           Token-Verbrauch zu erfassen")
+        e) Untitled-Sessions mit ISO-Timestamp -> lokalisiert formatieren
+        f) Footer: "Noch kein Datenstand · Fehler..." im filled-State war
+           Meta-404-Bug (BEREITS GEFIXT, commit nach 3069694) -> via
+           Re-Capture bestätigen, danach diesen Punkt entfernen
 
 ## Final
 - [ ] 14. Final verify: typecheck, vite build, pnpm start E2E gegen echte DB
