@@ -154,3 +154,10 @@
 ## Final
 - [ ] 14. Final verify: typecheck, vite build, pnpm start E2E gegen echte DB
         (API liefert echte Zahlen, Seiten rendern)
+- [ ] 23. Models-Filter via URL (Nutzerwunsch: sharebar/bookmarkbar):
+        Anbieter-Select + Modell-Suche + Gratis-Status-Filter
+        (?free=only|paid|all — Kriterium cost===0), State ausschließlich
+        über useSearchParams; gefiltert werden Tabelle, Top-10-Charts und
+        Preis-Analyse; aktive Filter als Badges + Reset-Button; unbekannte
+        Werte -> Empty-State statt Crash. Beispiel:
+        /models?provider=opencode-go&free=paid
