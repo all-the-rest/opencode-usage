@@ -36,13 +36,23 @@
             wartet auf Verify im Final Check -->
 - [ ] 8. Dashboard-Seite: KPI-Karten, Token-Zeitverlauf gestapelt
        (umschaltbar provider/family), Kostenverlauf
+       <!-- IMPLEMENTIERT: inkl. Heatmap (Woche×Stunde), Granularity/GroupBy-
+            Umschalter; wartet auf Verify -->
 - [ ] 9. Modelle-Seite: Breakdown nach Familie & Hersteller (Tokens, Kosten,
        Cache-Ratio), Anreicherung via @opencode-ai/models
+       <!-- IMPLEMENTIERT: models.dev-Snapshot offline via
+            @opencode-ai/models/snapshot; wartet auf Verify -->
 - [ ] 10. Projekte-Seite: Kosten/Tokens pro Projekt (Tabelle + Balken)
+       <!-- IMPLEMENTIERT; wartet auf Verify -->
 - [ ] 11. Sessions-Seite: Liste mit Filter/Sortierung, Detail mit
         Nachrichtenanzahl, Cache-Hit-Ratio, Token-Verlauf
+        <!-- IMPLEMENTIERT: sortierbare Header, Pagination, Client-Filter,
+             Expandable-Detail mit radial-progress; wartet auf Verify -->
 - [ ] 12. Cache-Analyse: Scatterplot Nachrichtenanzahl vs. Cache-Hit-Ratio
         (cache.read / (input+cache.read+cache.write)) mit Korrelationskennzahl
+        <!-- IMPLEMENTIERT: Scatter + Regressionsgerade + Pearson-KPI +
+             Bucket-Balken; echte Daten: pearson +0.296, Buckets
+             0.504→0.970; wartet auf Verify -->
 - [ ] 13. Auto-Refresh alle 60s (Polling) + lastSync-Anzeige
 
 ## UI Review (Skill-Ansatz)
