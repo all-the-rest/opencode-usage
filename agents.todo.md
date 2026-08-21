@@ -103,6 +103,18 @@
         f) Footer: "Noch kein Datenstand · Fehler..." im filled-State war
            Meta-404-Bug (BEREITS GEFIXT, commit nach 3069694) -> via
            Re-Capture bestätigen, danach diesen Punkt entfernen
+- [ ] 19. Nutzer-Feedback: Volumen-Sicht für Modelle (hy3 fehlt):
+        a) Models-Seite: Umschalter Kosten/Token-Volumen für das Top-10-
+           Balkendiagramm (Titel passt sich mit an)
+        b) Tabelle: Sortierung standardmäßig zusätzlich nach Volumen
+           möglich (Sortier-Header existieren — prüfen, dass Volumen=
+           input+output+reasoning als Sortierschlüssel vorhanden ist)
+        c) Donut-Charts sind bereits Volumen-basiert ("Token-Anteil"):
+           prüfen, dass hy3 dort sichtbar ist (nicht in "Andere" versunken;
+           ggf. Top-N erhöhen oder Legende zeigt "Andere"-Aufschlüsselung
+           per Tooltip)
+        d) Hintergrund: opencode-go/hy3 = 1,09 Mio Tokens (Rang 5 nach
+           Volumen) aber nur $0.2954 -> fällt in Kosten-Sichten hinten raus
 
 ## Final
 - [ ] 14. Final verify: typecheck, vite build, pnpm start E2E gegen echte DB
