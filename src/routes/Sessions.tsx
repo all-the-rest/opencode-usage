@@ -45,6 +45,8 @@ import {
 import { t, useLang, type Lang, type TranslationKey } from "../lib/i18n";
 import { AsyncState, EmptyState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
+import { readPeriodParam } from "../components/ProjectFilterBar";
+import { periodRange } from "../lib/period";
 
 const PAGE = 50;
 
@@ -54,16 +56,21 @@ export default function Sessions() {
   const [searchParams, setSearchParams] = useSearchParams();
   const project = searchParams.get("project") ?? "";
 
+  // Global period filter (set via the trend chart); scopes sessions + cache. Null
+  // = no period filter (full history).
+  const period = readPeriodParam(searchParams);
+  const range = period ? periodRange(period.start, period.unit) : null;
+
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<SessionSort>("recent");
   const [dir, setDir] = useState<Dir>("desc");
   const [filter, setFilter] = useState("");
   const [minMessages, setMinMessages] = useState(20);
 
-  // Back to page 1 whenever the project scope changes.
+  // Back to page 1 whenever the project scope or period changes.
   useEffect(() => {
     setOffset(0);
-  }, [project]);
+  }, [project, period?.start, period?.unit]);
 
   const clearProject = () =>
     setSearchParams(
@@ -91,6 +98,9 @@ export default function Sessions() {
       <CacheAnalysisSection
         minMessages={minMessages}
         onMinMessages={setMinMessages}
+        from={range?.from}
+        to={range?.to}
+        project={project || undefined}
       />
 
       <div className="card bg-base-200 shadow-sm">
@@ -123,13 +133,15 @@ export default function Sessions() {
           )}
 
           <SessionList
-            key={`${sort}-${dir}-${offset}-${project}`}
+            key={`${sort}-${dir}-${offset}-${project}-${range?.from ?? ""}-${range?.to ?? ""}`}
             query={{
               limit: PAGE,
               offset,
               sort,
               dir,
               project: project || undefined,
+              from: range?.from,
+              to: range?.to,
             }}
             filter={filter}
             onOffset={setOffset}
@@ -148,9 +160,15 @@ export default function Sessions() {
 function CacheAnalysisSection({
   minMessages,
   onMinMessages,
+  from,
+  to,
+  project,
 }: {
   minMessages: number;
   onMinMessages: (n: number) => void;
+  from?: string;
+  to?: string;
+  project?: string;
 }) {
   return (
     <div className="space-y-4">
@@ -162,7 +180,13 @@ function CacheAnalysisSection({
         {t("cacheExcludedHint", { n: minMessages })}
       </p>
 
-      <CacheAnalysisData key={minMessages} minMessages={minMessages} />
+      <CacheAnalysisData
+        key={`${minMessages}-${from ?? ""}-${to ?? ""}-${project ?? ""}`}
+        minMessages={minMessages}
+        from={from}
+        to={to}
+        project={project}
+      />
     </div>
   );
 }
@@ -192,8 +216,24 @@ function ThresholdSelect({
   );
 }
 
-function CacheAnalysisData({ minMessages }: { minMessages: number }) {
-  const api = usePoll((signal) => getCacheAnalysis(minMessages, signal));
+function CacheAnalysisData({
+  minMessages,
+  from,
+  to,
+  project,
+}: {
+  minMessages: number;
+  from?: string;
+  to?: string;
+  project?: string;
+}) {
+  const api = usePoll((signal) =>
+    getCacheAnalysis(minMessages, signal, {
+      project: project || undefined,
+      from,
+      to,
+    }),
+  );
 
   return (
     <>
@@ -435,6 +475,8 @@ function SessionList({
     sort: SessionSort;
     dir: Dir;
     project?: string;
+    from?: string;
+    to?: string;
   };
   filter: string;
   onOffset: (n: number) => void;

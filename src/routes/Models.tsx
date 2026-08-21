@@ -54,6 +54,8 @@ import { t, useLang } from "../lib/i18n";
 import { AsyncState, EmptyState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { paletteColor } from "../components/colors";
+import { readPeriodParam } from "../components/ProjectFilterBar";
+import { periodRange } from "../lib/period";
 
 type SortKey = "msgCount" | "cost" | "tokens" | "totalTokens";
 type SortDir = "asc" | "desc";
@@ -64,13 +66,35 @@ type PriceSortDir = "asc" | "desc";
 export default function Models() {
   const [searchParams] = useSearchParams();
   const project = searchParams.get("project") ?? "";
-  // Remount (and thus re-fetch) whenever the global project filter changes.
-  return <ModelsView key={project} project={project} />;
+  // Global period filter (set via the trend chart) scopes the model breakdown.
+  const period = readPeriodParam(searchParams);
+  const range = period ? periodRange(period.start, period.unit) : null;
+  // Remount (and thus re-fetch) whenever the global project or period changes.
+  return (
+    <ModelsView
+      key={`${project}-${range?.from ?? ""}-${range?.to ?? ""}`}
+      project={project}
+      from={range?.from}
+      to={range?.to}
+    />
+  );
 }
 
-function ModelsView({ project }: { project: string }) {
+function ModelsView({
+  project,
+  from,
+  to,
+}: {
+  project: string;
+  from?: string;
+  to?: string;
+}) {
   const api = usePoll((signal) =>
-    getModelBreakdown(signal, project ? { project } : undefined),
+    getModelBreakdown(signal, {
+      project: project || undefined,
+      from,
+      to,
+    }),
   );
   const meta = useModelProviders();
   // Ocgo-tracker-Fallback-Kette (opencode → global → opencode-go) über die
@@ -1103,13 +1127,20 @@ function ModelsPriceAnalysis({
                         </div>
                       </td>
                       <td className="text-right text-xs">
-                        <div>In {formatRatio(pct(r.inputTokens, r))}</div>
-                        <div>CR {formatRatio(pct(r.cacheReadTokens, r))}</div>
+                        <div>{t("priceInput")} {formatRatio(pct(r.inputTokens, r))}</div>
                         <div>
-                          Out {formatRatio(pct(r.outputTokens + r.reasoningTokens, r))}
+                          {t("priceCacheRead")}{" "}
+                          {formatRatio(pct(r.cacheReadTokens, r))}
+                        </div>
+                        <div>
+                          {t("priceOutput")}{" "}
+                          {formatRatio(pct(r.outputTokens + r.reasoningTokens, r))}
                         </div>
                         {r.cacheWriteTokens > 0 && (
-                          <div>CW {formatRatio(pct(r.cacheWriteTokens, r))}</div>
+                          <div>
+                            {t("priceCacheWrite")}{" "}
+                            {formatRatio(pct(r.cacheWriteTokens, r))}
+                          </div>
                         )}
                       </td>
                       <td className="text-right text-xs">
@@ -1120,7 +1151,7 @@ function ModelsPriceAnalysis({
                         <div>
                           {t("priceOutput")}: {formatPricePerM(cost?.output)}
                         </div>
-                        {cost?.cache_write != null && (
+                        {cost?.cache_write != null && cost.cache_write > 0 && (
                           <div>
                             {t("priceCacheWrite")}:{" "}
                             {formatPricePerM(cost.cache_write)}

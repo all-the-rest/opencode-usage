@@ -15,6 +15,7 @@ import type {
   MetaInfo,
   ModelBreakdownRow,
   ProjectRow,
+  RangeDetail,
   SessionRow,
   Summary,
   TimeseriesResponse,
@@ -36,6 +37,15 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
 export interface FetchOpts {
   /** Basename eines Projekt-Verzeichnisses (serverseitiger Filter). */
   project?: string;
+  /** Optionaler Datumsbereich YYYY-MM-DD in Lokalzeit (für Summary-KPIs). */
+  from?: string;
+  to?: string;
+}
+
+function appendRange(path: string, opts: FetchOpts | undefined): string {
+  if (!opts?.from || !opts?.to) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}from=${encodeURIComponent(opts.from)}&to=${encodeURIComponent(opts.to)}`;
 }
 
 function withProject(
@@ -51,7 +61,10 @@ export function getSummary(
   signal?: AbortSignal,
   opts?: FetchOpts,
 ): Promise<Summary> {
-  return request<Summary>(withProject("/api/stats/summary", opts), signal);
+  return request<Summary>(
+    appendRange(withProject("/api/stats/summary", opts), opts),
+    signal,
+  );
 }
 
 export function getTimeseries(
@@ -62,7 +75,7 @@ export function getTimeseries(
 ): Promise<TimeseriesResponse> {
   const params = new URLSearchParams({ granularity, groupBy });
   return request<TimeseriesResponse>(
-    withProject(`/api/stats/timeseries?${params}`, opts),
+    appendRange(withProject(`/api/stats/timeseries?${params}`, opts), opts),
     signal,
   );
 }
@@ -72,7 +85,7 @@ export function getModelBreakdown(
   opts?: FetchOpts,
 ): Promise<ModelBreakdownRow[]> {
   return request<ModelBreakdownRow[]>(
-    withProject("/api/stats/models", opts),
+    appendRange(withProject("/api/stats/models", opts), opts),
     signal,
   );
 }
@@ -81,7 +94,10 @@ export function getProjects(
   signal?: AbortSignal,
   opts?: FetchOpts,
 ): Promise<ProjectRow[]> {
-  return request<ProjectRow[]>(withProject("/api/stats/projects", opts), signal);
+  return request<ProjectRow[]>(
+    appendRange(withProject("/api/stats/projects", opts), opts),
+    signal,
+  );
 }
 
 export type SessionSort =
@@ -100,6 +116,9 @@ export interface SessionQuery {
   sort?: SessionSort;
   dir?: "asc" | "desc";
   project?: string;
+  /** Optional date window (YYYY-MM-DD, local) for the global period filter. */
+  from?: string;
+  to?: string;
 }
 
 export function getSessions(
@@ -112,6 +131,8 @@ export function getSessions(
   if (query.sort != null) params.set("sort", query.sort);
   if (query.dir != null) params.set("dir", query.dir);
   if (query.project) params.set("project", query.project);
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
   const qs = params.toString();
   return request<SessionRow[]>(`/api/stats/sessions${qs ? `?${qs}` : ""}`, signal);
 }
@@ -124,7 +145,21 @@ export function getCacheAnalysis(
   const params = new URLSearchParams();
   params.set("minMessages", String(minMessages));
   return request<CacheAnalysis>(
-    withProject(`/api/stats/cache-analysis?${params}`, opts),
+    appendRange(withProject(`/api/stats/cache-analysis?${params}`, opts), opts),
+    signal,
+  );
+}
+
+/** Period detail for a date range (global drill-down into week/month/day). */
+export function getRange(
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+  opts?: FetchOpts,
+): Promise<RangeDetail> {
+  const params = new URLSearchParams({ from, to });
+  return request<RangeDetail>(
+    appendRange(withProject(`/api/stats/range?${params}`, opts), opts),
     signal,
   );
 }
@@ -133,7 +168,10 @@ export function getHeatmap(
   signal?: AbortSignal,
   opts?: FetchOpts,
 ): Promise<HeatmapCell[]> {
-  return request<HeatmapCell[]>(withProject("/api/stats/heatmap", opts), signal);
+  return request<HeatmapCell[]>(
+    appendRange(withProject("/api/stats/heatmap", opts), opts),
+    signal,
+  );
 }
 
 export function getMeta(signal?: AbortSignal): Promise<MetaInfo> {

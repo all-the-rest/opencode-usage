@@ -6,7 +6,7 @@
  */
 
 import { Suspense } from "react";
-import { Link, NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet, useSearchParams } from "react-router";
 import { getMeta, usePoll } from "../lib/api";
 import { setLang, t, useLang, type Lang } from "../lib/i18n";
 import ProjectFilterBar from "./ProjectFilterBar";
@@ -23,11 +23,24 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 function NavItems() {
+  const [searchParams] = useSearchParams();
+  // Preserve the global filters (period / pperiod / project) across navigation so
+  // a drill-down set on one page stays active on every other page.
+  const keep = new URLSearchParams();
+  for (const k of ["period", "pperiod", "project"]) {
+    const v = searchParams.get(k);
+    if (v != null) keep.set(k, v);
+  }
+  const search = keep.toString();
   return (
     <>
       {NAV_ITEMS.map((item) => (
         <li key={item.to}>
-          <NavLink to={item.to} end={item.end} className={navClass}>
+          <NavLink
+            to={search ? { pathname: item.to, search } : item.to}
+            end={item.end}
+            className={navClass}
+          >
             {t(item.key)}
           </NavLink>
         </li>
@@ -87,7 +100,14 @@ function Navbar() {
             <NavItems />
           </ul>
         </div>
-        <Link to="/" className="btn btn-ghost text-xl font-bold">
+        <Link to="/" className="btn btn-ghost text-xl font-bold gap-2">
+          <img
+            src="/favicon.svg"
+            alt=""
+            width={28}
+            height={28}
+            className="h-7 w-7"
+          />
           {t("appTitle")}
         </Link>
       </div>

@@ -1,5 +1,8 @@
 /**
  * Dashboard ("/")
+ *  - Share dialog (URL params ?share=today|week|month + ?sharehide=1): opens
+ *    via the header "Teilen" button or a shared link; shows a server-rendered
+ *    statistics card with PNG download / clipboard / SVG actions
  *  - Day-detail drill-down section (URL param ?day=YYYY-MM-DD) at the top
  *  - KPI row from getSummary()
  *  - Stacked token-trend BarChart from getTimeseries() (granularity + groupBy
@@ -19,14 +22,10 @@
 import { Fragment } from "react";
 import { useSearchParams } from "react-router";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -52,9 +51,10 @@ import {
 import { t, useLang, type Lang } from "../lib/i18n";
 import { AsyncState, EmptyState, ErrorState, Spinner } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
-import DayDetailSection from "../components/DayDetailSection";
 import { KpiCard } from "../components/KpiCard";
+import { periodRange, type PeriodUnit } from "../lib/period";
 import { paletteColor } from "../components/colors";
+import ShareDialog, { type ShareRange } from "../components/ShareDialog";
 import { readProjectParam } from "../components/ProjectFilterBar";
 
 const TOKEN_FIELDS = [
@@ -66,14 +66,26 @@ const TOKEN_FIELDS = [
 
 type Row = Record<string, number | string>;
 
-/** URL param holding the drill-down day ("YYYY-MM-DD"). */
-const DAY_PARAM = "day";
-/** URL param for the token-trend granularity (?gran=day|week|month). */
+/** Global period filter: selected bucket start ("YYYY-MM-DD") + its unit. */
+const PERIOD_PARAM = "period";
+const PPERIOD_PARAM = "pperiod";
+/** URL param for the token-trend granularity (?gran=day|week|month|all). */
 const GRAN_PARAM = "gran";
 /** URL param for the token-trend grouping (?group=total|provider|…). */
 const GROUP_PARAM = "group";
+/**
+ * URL param opening the share dialog (?share=today|week|month). Present with
+ * a valid value ⇒ dialog open; missing/invalid ⇒ closed (no URL rewrite —
+ * same policy as gran/group).
+ */
+const SHARE_PARAM = "share";
+/** Project mode in the share card (?shareproj=all|hide|none). */
+const SHARE_PROJ_PARAM = "shareproj";
+/** Image language, independent of the UI language (?sharelang=de|en). */
+const SHARE_LANG_PARAM = "sharelang";
 
-const GRANULARITIES = ["day", "week", "month"] as const satisfies readonly Granularity[];
+const GRANULARITIES = ["day", "week", "month", "all"] as const satisfies readonly Granularity[];
+const SHARE_RANGES = ["today", "week", "month"] as const satisfies readonly ShareRange[];
 const GROUP_BYS = [
   "total",
   "provider",
@@ -83,6 +95,7 @@ const GROUP_BYS = [
 ] as const satisfies readonly GroupBy[];
 const DEFAULT_GRANULARITY: Granularity = "day";
 const DEFAULT_GROUP_BY: GroupBy = "total";
+const DEFAULT_SHARE_RANGE: ShareRange = "week";
 
 /** Parse a query-param value against an allow-list, falling back on miss. */
 function parseEnumParam<T extends string>(
@@ -101,7 +114,21 @@ export default function Dashboard() {
   // URL — only explicit user interaction writes params.
   const [searchParams, setSearchParams] = useSearchParams();
   const project = readProjectParam(searchParams);
-  const day = searchParams.get(DAY_PARAM);
+  // Globaler Zeitraum-Filter: ?period=<start>&pperiod=<day|week|month>.
+  // Ein crafted Wert (z. B. ?period=summary) würde sonst als Key-Fragment
+  // fremde Sibling-Keys kollidieren (gleiche Bugklasse wie Ghost-Charts).
+  const periodRaw = searchParams.get(PERIOD_PARAM);
+  const pperiodRaw = searchParams.get(PPERIOD_PARAM);
+  const periodUnit: PeriodUnit | null =
+    pperiodRaw === "day" || pperiodRaw === "week" || pperiodRaw === "month"
+      ? pperiodRaw
+      : null;
+  const period =
+    periodRaw != null && /^\d{4}-\d{2}-\d{2}$/.test(periodRaw) && periodUnit
+      ? periodRaw
+      : null;
+  // Explicit from/to window for the selected period; null = no global filter.
+  const range = period && periodUnit ? periodRange(period, periodUnit) : null;
   const granularity = parseEnumParam(
     searchParams.get(GRAN_PARAM),
     GRANULARITIES,
@@ -113,11 +140,37 @@ export default function Dashboard() {
     DEFAULT_GROUP_BY,
   );
 
-  /** Set/clear the drill-down day while preserving all other query params. */
-  const setDay = (d: string | null) => {
+  // Share dialog state: ?share=<range> opens it, ?shareproj=all|hide|none
+  // steers the project section, ?sharelang=de|en sets the IMAGE language
+  // (independent of the UI language). Invalid share values mean "closed"
+  // WITHOUT rewriting the URL (same policy as gran/group).
+  const shareRaw = searchParams.get(SHARE_PARAM);
+  const shareOpen =
+    shareRaw != null && (SHARE_RANGES as readonly string[]).includes(shareRaw);
+  const shareRange: ShareRange =
+    shareOpen && shareRaw ? (shareRaw as ShareRange) : DEFAULT_SHARE_RANGE;
+  const shareProjRaw = searchParams.get(SHARE_PROJ_PARAM);
+  const shareProjects: "all" | "hide" | "none" =
+    shareProjRaw === "hide" || shareProjRaw === "none" ? shareProjRaw : "all";
+  const shareLangRaw = searchParams.get(SHARE_LANG_PARAM);
+  const uiLang = useLang();
+  const shareImgLang: Lang =
+    shareLangRaw === "en" ? "en" : shareLangRaw === "de" ? "de" : uiLang;
+
+  /**
+   * Select / toggle a period. `start` is the bucket's start date (as produced by
+   * the trend chart's `day` field) and `unit` its granularity. Clicking the
+   * already-selected period clears it again. Preserves all other query params.
+   */
+  const togglePeriod = (start: string, unit: PeriodUnit) => {
     const params = new URLSearchParams(searchParams);
-    if (d) params.set(DAY_PARAM, d);
-    else params.delete(DAY_PARAM);
+    if (period === start && periodUnit === unit) {
+      params.delete(PERIOD_PARAM);
+      params.delete(PPERIOD_PARAM);
+    } else {
+      params.set(PERIOD_PARAM, start);
+      params.set(PPERIOD_PARAM, unit);
+    }
     setSearchParams(params);
   };
 
@@ -128,57 +181,189 @@ export default function Dashboard() {
     setSearchParams(params);
   };
 
+  /** Open/switch the share dialog range (?share=…), preserving other params. */
+  const setShareParam = (range: ShareRange | null) => {
+    const params = new URLSearchParams(searchParams);
+    if (range) {
+      params.set(SHARE_PARAM, range);
+    } else {
+      // Closing removes ALL share params so the plain dashboard link stays.
+      params.delete(SHARE_PARAM);
+      params.delete(SHARE_PROJ_PARAM);
+      params.delete(SHARE_LANG_PARAM);
+    }
+    setSearchParams(params);
+  };
+
+  /** Set ?shareproj=all|hide|none while preserving all other query params. */
+  const setShareProj = (mode: "all" | "hide" | "none") => {
+    const params = new URLSearchParams(searchParams);
+    // "all" ist der Default — Parameter dann gar nicht erst setzen.
+    if (mode === "all") params.delete(SHARE_PROJ_PARAM);
+    else params.set(SHARE_PROJ_PARAM, mode);
+    setSearchParams(params);
+  };
+
+  /** Set ?sharelang=de|en while preserving all other query params. */
+  const setShareImgLang = (lang: Lang) => {
+    const params = new URLSearchParams(searchParams);
+    if (lang === uiLang) params.delete(SHARE_LANG_PARAM);
+    else params.set(SHARE_LANG_PARAM, lang);
+    setSearchParams(params);
+  };
+
   return (
     <div className="space-y-6">
-      {day && (
-        <DayDetailSection
-          // Remount on date/project change: usePoll only fetches on mount.
-          key={`${day}|${project ?? ""}`}
-          date={day}
+      {/* Header row: page title left, share action right (dialog state lives
+          in the URL: ?share=today|week|month, ?shareproj=all|hide|none,
+          ?sharelang=de|en). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-3xl font-bold">{t("routeDashboard")}</h1>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          onClick={() => setShareParam(DEFAULT_SHARE_RANGE)}
+        >
+          {t("shareButton")}
+        </button>
+      </div>
+
+      {shareOpen && (
+        <ShareDialog
+          range={shareRange}
           project={project}
-          onClose={() => setDay(null)}
+          projects={shareProjects}
+          imgLang={shareImgLang}
+          onRange={setShareParam}
+          onProjects={setShareProj}
+          onImgLang={setShareImgLang}
+          onClose={() => setShareParam(null)}
         />
       )}
 
-      <h1 className="text-3xl font-bold">{t("routeDashboard")}</h1>
+      {/* Globale Auflösung: steuert ALLE Daten-Charts (Zeitverlauf,
+          Kostenverlauf, Token-Anteile) — nicht nur den Token-Zeitverlauf. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <GranularitySwitch
+          value={granularity}
+          onChange={(g) => setFilterParam(GRAN_PARAM, g)}
+        />
+      </div>
 
-      {/* Keys include `project`: useApi keeps its fetcher in a ref and only
-          refetches on mount, so a filter change must remount the consumers. */}
-      {/* Keys force a remount (useApi fetches on mount only) when the global
-          project filter changes. They MUST stay unique among siblings — three
-          components once shared key={project ?? "all"}, which made React
-          duplicate nodes on re-render (ghost charts / duplicated KPI row). */}
-      <SummaryKpis key={`summary|${project ?? "all"}`} project={project} />
+      {/* Keys include `project` AND `granularity`: useApi keeps its fetcher in
+          a ref and only refetches on mount, so a filter change must remount the
+          consumers. SummaryKpis folgt der globalen Auflösung (?gran=):
+          Tag=heute, Woche=aktuelle KW (Mo–So), Monat=laufender Monat,
+          All=gesamte Historie (kein from/to). */}
+      <SummaryKpis
+        key={`summary|${granularity}-${period ?? "all"}-${project ?? "all"}`}
+        granularity={granularity}
+        project={project}
+        from={range?.from}
+        to={range?.to}
+      />
 
       <TokenTrendChart
         key={`trend|${granularity}-${groupBy}-${project ?? "all"}`}
         granularity={granularity}
         groupBy={groupBy}
         project={project}
-        onGranularity={(g) => setFilterParam(GRAN_PARAM, g)}
         onGroupBy={(g) => setFilterParam(GROUP_PARAM, g)}
-        onSelectDay={setDay}
+        onSelectDay={(d) => {
+          if (granularity !== "all") togglePeriod(d, granularity);
+        }}
       />
 
+      {/* The selected period is a GLOBAL drill-down: the trend chart stays the
+          full overview + navigator, while every other panel below reflects the
+          chosen period (KPIs, cost/share/heatmap here; Sessions/Models/Projects
+          on their own routes). The chip in the global filter bar clears it. */}
       <CostTrendChart
-        key={`cost|${granularity}-${project ?? "all"}`}
+        key={`cost|${granularity}-${period ?? "all"}-${project ?? "all"}`}
         granularity={granularity}
         project={project}
+        from={range?.from}
+        to={range?.to}
       />
 
       <TokenShareChart
-        key={`share|${project ?? "all"}`}
+        key={`share|${granularity}-${period ?? "all"}-${project ?? "all"}`}
+        granularity={granularity}
         project={project}
-        onSelectDay={setDay}
+        from={range?.from}
+        to={range?.to}
+        onSelectDay={(d) => {
+          if (granularity !== "all") togglePeriod(d, granularity);
+        }}
       />
 
-      <HeatmapCard key={`heatmap|${project ?? "all"}`} project={project} onSelectDay={setDay} />
+      {/* Heatmap ist bewusst NICHT an ?gran= gekoppelt: Stunden×Woche kann
+          keinen „all“-Bucket darstellen; die 24-Wochen-Kappe bleibt also
+          auch bei gran=all aktiv (Audit-Runde 4, Gap 3). */}
+      <HeatmapCard
+        key={`heatmap|${period ?? "all"}-${project ?? "all"}`}
+        project={project}
+        from={range?.from}
+        to={range?.to}
+        onSelectDay={(d) => togglePeriod(d, "day")}
+      />
     </div>
   );
 }
 
-function SummaryKpis({ project }: { project?: string }) {
-  const summary = usePoll((signal) => getSummary(signal, { project }));
+/** Local-time YYYY-MM-DD for a Date (avoids UTC shift). Named ymdLocal to not
+ *  collide with the UTC-based `ymd` used by the HeatmapCard. */
+function ymdLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Maps the global resolution (?gran=) to a date window for the KPI summary:
+ *  - day   → heute
+ *  - week  → aktuelle KW (Montag–Sonntag)
+ *  - month → laufender Monat (1.–letzter)
+ *  - all   → gesamte Historie (kein from/to)
+ * The week boundary matches the server's bucketDay() (Monday of the local week).
+ */
+function granularityWindow(g: Granularity): { from?: string; to?: string } {
+  if (g === "all") return {};
+  const now = new Date();
+  if (g === "day") {
+    const d = ymdLocal(now);
+    return { from: d, to: d };
+  }
+  if (g === "month") {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: ymdLocal(first), to: ymdLocal(last) };
+  }
+  // week: Monday of the current local week .. following Sunday
+  const sinceMonday = (now.getDay() + 6) % 7;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - sinceMonday);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  return { from: ymdLocal(mon), to: ymdLocal(sun) };
+}
+
+function SummaryKpis({
+  granularity,
+  project,
+  from,
+  to,
+}: {
+  granularity: Granularity;
+  project?: string;
+  from?: string;
+  to?: string;
+}) {
+  // When a specific period is selected it overrides the granularity window.
+  const { from: wFrom, to: wTo } = granularityWindow(granularity);
+  const rangeFrom = from ?? wFrom;
+  const rangeTo = to ?? wTo;
+  const summary = usePoll((signal) =>
+    getSummary(signal, { project, from: rangeFrom, to: rangeTo }),
+  );
   const lang = useLang();
 
   if (summary.loading && !summary.data) return <Spinner />;
@@ -227,7 +412,7 @@ function GranularitySwitch({
   value: Granularity;
   onChange: (g: Granularity) => void;
 }) {
-  const opts: Granularity[] = ["day", "week", "month"];
+  const opts: Granularity[] = ["day", "week", "month", "all"];
   return (
     <div className="flex items-center gap-2">
       <span className="text-sm opacity-70">{t("granularity")}</span>
@@ -238,7 +423,15 @@ function GranularitySwitch({
             className={`btn btn-xs join-item ${value === g ? "btn-primary" : ""}`}
             onClick={() => onChange(g)}
           >
-            {t(g === "day" ? "granDay" : g === "week" ? "granWeek" : "granMonth")}
+            {t(
+              g === "day"
+                ? "granDay"
+                : g === "week"
+                  ? "granWeek"
+                  : g === "month"
+                    ? "granMonth"
+                    : "granAll",
+            )}
           </button>
         ))}
       </div>
@@ -333,32 +526,35 @@ function TokenTrendChart({
   granularity,
   groupBy,
   project,
-  onGranularity,
   onGroupBy,
   onSelectDay,
 }: {
   granularity: Granularity;
   groupBy: GroupBy;
   project?: string;
-  onGranularity: (g: Granularity) => void;
   onGroupBy: (g: GroupBy) => void;
   onSelectDay: (day: string) => void;
 }) {
   const api = usePoll((signal) =>
     getTimeseries(granularity, groupBy, signal, { project }),
   );
+  // "all" ist ein Pseudo-Bucket ohne reales Datum → kein Drilldown.
+  const canDrillDown = granularity !== "all";
   const tickFmt = (day: string) =>
-    granularity === "day" ? shortDay(day) : shortMonth(day);
+    granularity === "all"
+      ? t("granAll")
+      : granularity === "day"
+        ? shortDay(day)
+        : shortMonth(day);
 
   return (
     <ChartCard
       title={t("chartTokenTrend")}
       height={340}
       right={
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <GranularitySwitch value={granularity} onChange={onGranularity} />
-          <GroupBySwitch value={groupBy} onChange={onGroupBy} />
-        </div>
+        // Auflösung ist jetzt ein globaler Filter (über dem Chart);
+        // hier bleibt nur die Gruppierung.
+        <GroupBySwitch value={groupBy} onChange={onGroupBy} />
       }
       empty={(api.data?.points?.length ?? 0) === 0}
     >
@@ -389,7 +585,7 @@ function TokenTrendChart({
                 fontSize={11}
                 width={48}
               />
-              <Tooltip content={<TokenTrendTooltip />} cursor={{ fill: "var(--color-base-content)", opacity: 0.08 }} />
+              <Tooltip content={<TokenTrendTooltip fmtLabel={tickFmt} />} cursor={{ fill: "var(--color-base-content)", opacity: 0.08 }} />
               <Legend wrapperStyle={{ flexWrap: "wrap" }} />
               {series.map((s, i) => (
                 <Bar
@@ -399,6 +595,7 @@ function TokenTrendChart({
                   stackId="tokens"
                   fill={paletteColor(i)}
                   onClick={(data: any) => {
+                    if (!canDrillDown) return;
                     const d: unknown = data?.payload?.day;
                     if (typeof d === "string") onSelectDay(d);
                   }}
@@ -414,12 +611,17 @@ function TokenTrendChart({
 }
 
 /** Custom tooltip for the stacked token trend: per-series values + day total. */
-function TokenTrendTooltip({ active, payload, label }: any) {
+function TokenTrendTooltip({
+  active,
+  payload,
+  label,
+  fmtLabel,
+}: any) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0);
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
-      <div className="mb-1 font-medium">{label}</div>
+      <div className="mb-1 font-medium">{fmtLabel ? fmtLabel(label) : label}</div>
       {payload.map((e: any) => (
         <div key={e.dataKey} className="flex items-center gap-1.5">
           <span
@@ -440,15 +642,22 @@ function TokenTrendTooltip({ active, payload, label }: any) {
 function CostTrendChart({
   granularity,
   project,
+  from,
+  to,
 }: {
   granularity: Granularity;
   project?: string;
+  from?: string;
+  to?: string;
 }) {
+  // When a period is selected globally, drill this chart into that period at day
+  // granularity (the trend chart above stays the full overview navigator).
+  const scoped = from != null && to != null;
+  const g = scoped ? "day" : granularity;
   const api = usePoll((signal) =>
-    getTimeseries(granularity, "total", signal, { project }),
+    getTimeseries(g, "total", signal, { project, from, to }),
   );
-  const tickFmt = (day: string) =>
-    granularity === "day" ? shortDay(day) : shortMonth(day);
+  const tickFmt = (day: string) => (g === "all" ? t("granAll") : shortDay(day));
 
   return (
     <ChartCard
@@ -466,7 +675,7 @@ function CostTrendChart({
           const rows = [...byDay.entries()].map(([day, cost]) => ({ day, cost }));
           return (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <BarChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
               <XAxis
                 dataKey="day"
@@ -481,17 +690,17 @@ function CostTrendChart({
               />
               <Tooltip
                 formatter={(value) => formatCost(Number(value ?? 0))}
-                labelFormatter={(l) => String(l)}
+                labelFormatter={(l) =>
+                  g === "all" ? t("granAll") : String(l)
+                }
               />
-              <Line
-                type="monotone"
+              <Bar
                 dataKey="cost"
                 name={t("kpiCost")}
-                stroke="var(--color-primary)"
-                strokeWidth={2}
-                dot={false}
+                fill="var(--color-primary)"
+                radius={[2, 2, 0, 0]}
               />
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           );
         })()}
@@ -512,15 +721,26 @@ const SHARE_CATS = [
 type ShareRow = Record<string, number | string>;
 
 function TokenShareChart({
+  granularity,
   project,
+  from,
+  to,
   onSelectDay,
 }: {
+  granularity: Granularity;
   project?: string;
+  from?: string;
+  to?: string;
   onSelectDay: (day: string) => void;
 }) {
+  const scoped = from != null && to != null;
+  const g = scoped ? "day" : granularity;
   const api = usePoll((signal) =>
-    getTimeseries("day", "total", signal, { project }),
+    getTimeseries(g, "total", signal, { project, from, to }),
   );
+  // Bei „all“ ist der Bucket kein reales Datum → kein Drilldown.
+  const canDrillDown = g !== "all";
+  const tickFmt = (day: string) => (g === "all" ? t("granAll") : shortDay(day));
 
   // Aggregate per day (groupBy="total" -> one point per day) and normalize the
   // four categories to a 0-100% share; keep absolute values for the tooltip.
@@ -560,7 +780,7 @@ function TokenShareChart({
           if (rows.length === 0) return <EmptyState />;
           return (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
+              <BarChart
                 data={rows}
                 margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
                 className="cursor-pointer"
@@ -571,7 +791,7 @@ function TokenShareChart({
                 />
                 <XAxis
                   dataKey="day"
-                  tickFormatter={shortDay}
+                  tickFormatter={tickFmt}
                   fontSize={11}
                   interval="preserveStartEnd"
                 />
@@ -581,12 +801,11 @@ function TokenShareChart({
                   fontSize={11}
                   width={44}
                 />
-                <Tooltip content={<TokenShareTooltip cats={SHARE_CATS} />} />
+                <Tooltip content={<TokenShareTooltip cats={SHARE_CATS} fmtLabel={tickFmt} />} />
                 <Legend wrapperStyle={{ flexWrap: "wrap" }} />
                 {SHARE_CATS.map((c) => (
-                  <Area
+                  <Bar
                     key={c.key}
-                    type="monotone"
                     dataKey={`${c.key}Pct`}
                     name={t(c.labelKey)}
                     stackId="1"
@@ -594,12 +813,13 @@ function TokenShareChart({
                     stroke={c.color}
                     fillOpacity={0.7}
                     onClick={(data: any) => {
+                      if (!canDrillDown) return;
                       const d: unknown = data?.payload?.day;
                       if (typeof d === "string") onSelectDay(d);
                     }}
                   />
                 ))}
-              </AreaChart>
+              </BarChart>
             </ResponsiveContainer>
           );
         })()}
@@ -608,13 +828,15 @@ function TokenShareChart({
   );
 }
 
-function TokenShareTooltip({ active, payload, cats }: any) {
+function TokenShareTooltip({ active, payload, cats, fmtLabel }: any) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   if (!row) return null;
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
-      <div className="mb-1 font-medium">{row.day}</div>
+      <div className="mb-1 font-medium">
+        {fmtLabel ? fmtLabel(row.day) : row.day}
+      </div>
       {cats.map((c: any) => {
         const abs = Number(row[c.key]) || 0;
         const pct = Number(row[`${c.key}Pct`]) || 0;
@@ -653,12 +875,16 @@ function ymd(d: Date): string {
 
 function HeatmapCard({
   project,
+  from,
+  to,
   onSelectDay,
 }: {
   project?: string;
+  from?: string;
+  to?: string;
   onSelectDay: (day: string) => void;
 }) {
-  const api = usePoll((signal) => getHeatmap(signal, { project }));
+  const api = usePoll((signal) => getHeatmap(signal, { project, from, to }));
   const lang = useLang();
 
   return (

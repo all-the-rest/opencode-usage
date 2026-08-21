@@ -32,6 +32,8 @@ import { t, useLang } from "../lib/i18n";
 import { AsyncState } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { ModeSwitch, type ViewMode } from "../components/ModeSwitch";
+import { readPeriodParam } from "../components/ProjectFilterBar";
+import { periodRange } from "../lib/period";
 
 type Dir = "asc" | "desc";
 type ProjectSort =
@@ -45,13 +47,42 @@ type ProjectSort =
 export default function Projects() {
   const [searchParams] = useSearchParams();
   const project = searchParams.get("project") ?? "";
-  // Remount (and thus re-fetch) whenever the global project filter changes.
-  return <ProjectsView key={project} project={project} />;
+  // Global period filter (set via the trend chart) scopes the project breakdown.
+  const period = readPeriodParam(searchParams);
+  const range = period ? periodRange(period.start, period.unit) : null;
+  // Keep the drill-down alive when jumping from a project into its sessions.
+  const periodQuery = period
+    ? `period=${encodeURIComponent(period.start)}&pperiod=${encodeURIComponent(period.unit)}`
+    : "";
+  // Remount (and thus re-fetch) whenever the global project or period changes.
+  return (
+    <ProjectsView
+      key={`${project}-${range?.from ?? ""}-${range?.to ?? ""}`}
+      project={project}
+      from={range?.from}
+      to={range?.to}
+      periodQuery={periodQuery}
+    />
+  );
 }
 
-function ProjectsView({ project }: { project: string }) {
+function ProjectsView({
+  project,
+  from,
+  to,
+  periodQuery = "",
+}: {
+  project: string;
+  from?: string;
+  to?: string;
+  periodQuery?: string;
+}) {
   const api = usePoll((signal) =>
-    getProjects(signal, project ? { project } : undefined),
+    getProjects(signal, {
+      project: project || undefined,
+      from,
+      to,
+    }),
   );
   const lang = useLang();
   const [, setSearchParams] = useSearchParams();
@@ -273,6 +304,7 @@ function ProjectsView({ project }: { project: string }) {
                             lang={lang}
                             totalCost={totalAllCost}
                             expanded={expanded}
+                            periodQuery={periodQuery}
                             onToggle={() =>
                               setExpandedDir(expanded ? null : p.directory)
                             }
@@ -312,12 +344,14 @@ function ProjectRows({
   totalCost,
   expanded,
   onToggle,
+  periodQuery,
 }: {
   row: ProjectRow;
   lang: ReturnType<typeof useLang>;
   totalCost: number;
   expanded: boolean;
   onToggle: () => void;
+  periodQuery?: string;
 }) {
   const navigate = useNavigate();
   const totalTokens =
@@ -376,7 +410,7 @@ function ProjectRows({
             className="btn btn-outline btn-primary btn-xs whitespace-nowrap"
             onClick={(e) => {
               e.stopPropagation();
-              navigate(sessionsPath(row.directory));
+              navigate(sessionsPath(row.directory, periodQuery));
             }}
           >
             {t("projectsShowSessions")}
@@ -451,7 +485,7 @@ function ProjectRows({
               <button
                 type="button"
                 className="btn btn-outline btn-primary btn-xs whitespace-nowrap"
-                onClick={() => navigate(sessionsPath(row.directory))}
+                onClick={() => navigate(sessionsPath(row.directory, periodQuery))}
               >
                 {t("projectsShowSessions")}
               </button>
@@ -463,7 +497,9 @@ function ProjectRows({
   );
 }
 
-/** Pfad zur Session-Liste, gefiltert auf das Projekt-Basename. */
-function sessionsPath(directory: string): string {
-  return `/sessions?project=${encodeURIComponent(basename(directory))}`;
+/** Pfad zur Session-Liste, gefiltert auf das Projekt-Basename (+ optionaler Period-Filter). */
+function sessionsPath(directory: string, periodQuery = ""): string {
+  return `/sessions?project=${encodeURIComponent(basename(directory))}${
+    periodQuery ? `&${periodQuery}` : ""
+  }`;
 }

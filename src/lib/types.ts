@@ -116,7 +116,7 @@ export interface MetaInfo {
   messageCount: number;
 }
 
-export type Granularity = "day" | "week" | "month";
+export type Granularity = "day" | "week" | "month" | "all";
 export type GroupBy =
   | "provider"
   | "family"
@@ -156,6 +156,40 @@ export interface DayDetail {
     cost: number;
   }>;
   sessions: SessionRow[]; // an diesem Tag aktualisierte Sessions
+}
+
+/**
+ * Period detail for a date range (Endpoint: GET /api/stats/range?from=&to=).
+ * Generalizes DayDetail to week/month ranges: `byHour` is only populated for
+ * single-day ranges; `byDay` holds the per-day breakdown for multi-day ranges.
+ */
+export interface RangeDetail {
+  from: string; // YYYY-MM-DD
+  to: string; // YYYY-MM-DD
+  msgCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cost: number;
+  sessionCount: number;
+  byHour: Array<{ hour: number; msgCount: number }>;
+  byDay: Array<{ day: string; msgCount: number }>;
+  byModel: Array<{
+    providerId: string;
+    modelId: string;
+    msgCount: number;
+    totalTokens: number;
+    cost: number;
+  }>;
+  byProject: Array<{
+    directory: string;
+    msgCount: number;
+    totalTokens: number;
+    cost: number;
+  }>;
+  sessions: SessionRow[];
 }
 
 export interface TimeseriesResponse {

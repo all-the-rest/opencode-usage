@@ -11,8 +11,11 @@
 import { useSearchParams } from "react-router";
 import { getDirectories, usePoll } from "../lib/api";
 import { t, useLang } from "../lib/i18n";
+import { formatPeriodLabel, type PeriodUnit } from "../lib/period";
 
 export const PROJECT_PARAM = "project";
+export const PERIOD_PARAM = "period";
+export const PPERIOD_PARAM = "pperiod";
 
 /** Read the active global project filter (undefined = no filter). */
 export function readProjectParam(
@@ -22,18 +25,44 @@ export function readProjectParam(
   return v != null && v !== "" ? v : undefined;
 }
 
+/** Read the active global period filter (start + unit), or null when unset. */
+export function readPeriodParam(
+  params: URLSearchParams,
+): { start: string; unit: PeriodUnit } | null {
+  const start = params.get(PERIOD_PARAM);
+  const unitRaw = params.get(PPERIOD_PARAM);
+  const unit: PeriodUnit | null =
+    unitRaw === "day" || unitRaw === "week" || unitRaw === "month"
+      ? unitRaw
+      : null;
+  if (start != null && /^\d{4}-\d{2}-\d{2}$/.test(start) && unit) {
+    return { start, unit };
+  }
+  return null;
+}
+
 export default function ProjectFilterBar() {
   // Subscribe so t() output updates on language change.
   useLang();
+  const lang = useLang();
   const [searchParams, setSearchParams] = useSearchParams();
   const dirs = usePoll(getDirectories, 60_000);
   const project = readProjectParam(searchParams);
+  const period = readPeriodParam(searchParams);
 
-  /** Set/clear the filter while preserving all other query params (e.g. day). */
+  /** Set/clear the project filter while preserving all other query params. */
   const update = (value: string) => {
     const params = new URLSearchParams(searchParams);
     if (value) params.set(PROJECT_PARAM, value);
     else params.delete(PROJECT_PARAM);
+    setSearchParams(params);
+  };
+
+  /** Clear the global period filter (preserves project + everything else). */
+  const clearPeriod = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete(PERIOD_PARAM);
+    params.delete(PPERIOD_PARAM);
     setSearchParams(params);
   };
 
@@ -76,8 +105,26 @@ export default function ProjectFilterBar() {
                 ✕
               </button>
             </span>
-            <span className="hidden text-xs opacity-60 sm:inline">
-              {t("globalActiveOn")}
+          </div>
+        )}
+
+        {period && (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="badge badge-secondary gap-1">
+              <span className="max-w-56 truncate">
+                {t("rangeChip", {
+                  label: formatPeriodLabel(period.start, period.unit, lang === "de" ? "de-DE" : "en-US"),
+                })}
+              </span>
+              <button
+                type="button"
+                className="cursor-pointer opacity-70 hover:opacity-100"
+                aria-label={t("rangeClear")}
+                title={t("rangeClear")}
+                onClick={clearPeriod}
+              >
+                ✕
+              </button>
             </span>
           </div>
         )}
@@ -85,3 +132,4 @@ export default function ProjectFilterBar() {
     </div>
   );
 }
+
