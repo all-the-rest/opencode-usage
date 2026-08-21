@@ -129,6 +129,13 @@
         c) Defaults auf VOLUMEN statt Kosten umstellen: Models Top-Chart
            (mit Todo 19a-Umschalter, Default Volumen), Projects Balken-
            diagramm, Sessions-Tabellen-Sortierung
+- [ ] 21. Nutzer-Feedback Runde 3: Dashboard Token-Zeitverlauf — Chart-Typ
+        folgt Granularity: Tag = gestapelte AreaChart (wie bisher),
+        Woche/Monat = gestapeltes BarChart (stackId="tokens", eine Bar-Serie
+        je Token-Kategorie). Begründung: diskrete Buckets, bessere
+        Vergleichbarkeit, unvollständige aktuelle Woche sichtbar. Kosten-
+        verlauf analog prüfen (Line ok für alle Granularitäten, da einzelner
+        Trend-Wert)
 
 ## Final
 - [ ] 14. Final verify: typecheck, vite build, pnpm start E2E gegen echte DB
