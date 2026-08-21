@@ -33,8 +33,15 @@ import { Models as ModelsClient } from "@opencode-ai/models";
 import type { ModelCost, ProviderMap } from "@opencode-ai/models";
 import {
   detectManufacturer,
+  isStealthModel,
   OTHER_MANUFACTURER,
+  STEALTH_MANUFACTURER,
 } from "../lib/manufacturers";
+import {
+  buildModelLookup,
+  publicModelName,
+  type ModelLookup,
+} from "../lib/model-lookup";
 import { getModelBreakdown, usePoll } from "../lib/api";
 import type { ModelBreakdownRow } from "../lib/types";
 import {
@@ -66,6 +73,12 @@ function ModelsView({ project }: { project: string }) {
     getModelBreakdown(signal, project ? { project } : undefined),
   );
   const meta = useModelProviders();
+  // Ocgo-tracker-Fallback-Kette (opencode → global → opencode-go) über die
+  // clientseitig geladenen Provider-Metadaten, einmalig gebaut.
+  const lookup = useMemo<ModelLookup | null>(
+    () => (meta.providers ? buildModelLookup(meta.providers) : null),
+    [meta.providers],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
 
   const provider = searchParams.get("provider") ?? "";
@@ -194,7 +207,7 @@ function ModelsView({ project }: { project: string }) {
             error={api.error}
             onRetry={api.refetch}
             rows={filtered}
-            meta={meta.providers}
+            lookup={lookup}
             groupKey="providerId"
           />
         </ChartCard>
@@ -208,7 +221,7 @@ function ModelsView({ project }: { project: string }) {
             error={api.error}
             onRetry={api.refetch}
             rows={filtered}
-            meta={meta.providers}
+            lookup={lookup}
             groupKey="family"
           />
         </ChartCard>
@@ -222,7 +235,7 @@ function ModelsView({ project }: { project: string }) {
             error={api.error}
             onRetry={api.refetch}
             rows={filtered}
-            meta={meta.providers}
+            lookup={lookup}
             groupKey="manufacturer"
           />
         </ChartCard>
@@ -231,14 +244,14 @@ function ModelsView({ project }: { project: string }) {
       <TopModelsChart
         api={api}
         rows={filtered}
-        meta={meta.providers}
+        lookup={lookup}
         mode="volume"
       />
-      <TopModelsChart api={api} rows={filtered} meta={meta.providers} mode="cost" />
+      <TopModelsChart api={api} rows={filtered} lookup={lookup} mode="cost" />
 
-      <ModelsPriceAnalysis api={api} rows={filtered} meta={meta.providers} />
+      <ModelsPriceAnalysis api={api} rows={filtered} meta={meta.providers} lookup={lookup} />
 
-      <ModelTable api={api} rows={filtered} meta={meta.providers} />
+      <ModelTable api={api} rows={filtered} lookup={lookup} />
     </div>
   );
 }
@@ -573,9 +586,17 @@ function useModelProviders() {
   return { providers, loading, error };
 }
 
-function modelNameOnly(r: ModelBreakdownRow, meta: ProviderMap | null): string {
-  const mdl = meta?.[r.providerId]?.models?.[r.modelId];
-  return mdl?.name ?? r.modelName;
+function modelNameOnly(
+  r: ModelBreakdownRow,
+  lookup: ModelLookup | null,
+): string {
+  const resolved = lookup?.resolve(r.modelId, r.modelName);
+  return (
+    (isStealthModel(r.modelId)
+      ? publicModelName(resolved?.name)
+      : (resolved?.name ?? undefined)) ??
+    r.modelName
+  );
 }
 
 /** Total token volume of a model row (input + output + reasoning + cache read). */
@@ -593,12 +614,12 @@ function modelVolume(r: ModelBreakdownRow): number {
 function TopModelsChart({
   api,
   rows,
-  meta,
+  lookup,
   mode,
 }: {
   api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
   rows: ModelBreakdownRow[];
-  meta: ProviderMap | null;
+  lookup: ModelLookup | null;
   mode: "volume" | "cost";
 }) {
   const top = (() => {
@@ -608,7 +629,7 @@ function TopModelsChart({
       )
       .slice(0, 10);
     return sorted.map((r) => ({
-      name: modelNameOnly(r, meta),
+      name: modelNameOnly(r, lookup),
       value: mode === "volume" ? modelVolume(r) : r.cost,
     }));
   })();
@@ -686,14 +707,14 @@ function DonutChart({
   error,
   onRetry,
   rows,
-  meta,
+  lookup,
   groupKey,
 }: {
   loading: boolean;
   error: Error | null;
   onRetry: () => void;
   rows: ModelBreakdownRow[];
-  meta: ProviderMap | null;
+  lookup: ModelLookup | null;
   groupKey: "providerId" | "family" | "manufacturer";
 }) {
   return (
@@ -705,10 +726,10 @@ function DonutChart({
         for (const r of list) {
           const key =
             groupKey === "providerId"
-              ? resolveRow(r, meta).providerName
+              ? resolveRow(r, lookup).providerName
               : groupKey === "manufacturer"
                 ? detectManufacturer(r.modelId)
-                : resolveRow(r, meta).family ?? t("seriesOther");          const total =
+                : resolveRow(r, lookup).family ?? t("seriesOther");          const total =
             r.inputTokens +
             r.outputTokens +
             r.reasoningTokens +
@@ -768,25 +789,31 @@ function DonutChart({
   );
 }
 
-function resolveRow(r: ModelBreakdownRow, meta: ProviderMap | null) {
-  const prov = meta?.[r.providerId];
-  const mdl = prov?.models?.[r.modelId];
+function resolveRow(r: ModelBreakdownRow, lookup: ModelLookup | null) {
+  const resolved = lookup?.resolve(r.modelId, r.modelName);
   return {
-    providerName: prov?.name ?? r.providerName,
-    modelName: mdl?.name ?? r.modelName,
-    family: mdl?.family ?? r.family,
-    contextWindow: mdl?.limit?.context ?? r.contextWindow,
+    providerName: r.providerName,
+    modelName: modelNameOnly(r, lookup),
+    // Family: Der Server liefert den autoritativen Wert (kuratierte
+    // Snapshot-Family, Fallback ID-Heuristik) → `r.family` hat Vorrang.
+    // Der clientseitige Katalog dient NUR als Notfall-Fallback, falls der
+    // Server-Wert null ist. Stealth-Modelle bleiben standalone → gemeinsame
+    // Stealth-Family.
+    family: isStealthModel(r.modelId)
+      ? STEALTH_MANUFACTURER
+      : (r.family ?? resolved?.family ?? null),
+    contextWindow: r.contextWindow ?? resolved?.limit?.context ?? null,
   };
 }
 
 function ModelTable({
   api,
   rows,
-  meta,
+  lookup,
 }: {
   api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
   rows: ModelBreakdownRow[];
-  meta: ProviderMap | null;
+  lookup: ModelLookup | null;
 }) {
   const lang = useLang();
   const [sortKey, setSortKey] = useState<SortKey>("totalTokens");
@@ -867,7 +894,7 @@ function ModelTable({
                 </thead>
                 <tbody>
                   {sorted.map((r, idx) => {
-                    const info = resolveRow(r, meta);
+                    const info = resolveRow(r, lookup);
                     return (
                       <tr key={`${r.providerId}-${r.modelId}-${idx}`}>
                         <td>{info.providerName}</td>
@@ -923,10 +950,12 @@ function ModelsPriceAnalysis({
   api,
   rows,
   meta,
+  lookup,
 }: {
   api: ReturnType<typeof usePoll<ModelBreakdownRow[]>>;
   rows: ModelBreakdownRow[];
   meta: ProviderMap | null;
+  lookup: ModelLookup | null;
 }) {
   const [sortKey, setSortKey] =
     useState<PriceSortKey>("effective");
@@ -986,8 +1015,8 @@ function ModelsPriceAnalysis({
       switch (sortKey) {
         case "model":
           return (
-            modelNameOnly(a.r, meta).localeCompare(
-              modelNameOnly(b.r, meta),
+            modelNameOnly(a.r, lookup).localeCompare(
+              modelNameOnly(b.r, lookup),
             ) * dir
           );
         case "totalTokens":
@@ -999,7 +1028,7 @@ function ModelsPriceAnalysis({
           return (a.effective - b.effective) * dir;
       }
     });
-  }, [enriched, sortKey, sortDir, meta]);
+  }, [enriched, sortKey, sortDir, lookup]);
 
   const toggle = (key: PriceSortKey) => {
     if (key === sortKey) {
@@ -1067,7 +1096,7 @@ function ModelsPriceAnalysis({
                     <tr key={`${r.providerId}-${r.modelId}`}>
                       <td>
                         <div className="font-medium">
-                          {modelNameOnly(r, meta)}
+                          {modelNameOnly(r, lookup)}
                         </div>
                         <div className="text-[10px] opacity-60">
                           {r.providerName}

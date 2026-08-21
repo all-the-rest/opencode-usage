@@ -7,7 +7,9 @@
  * (timeseries groupBy=manufacturer) importiert.
  */
 
-import MANUAL_RULES from "./manual-manufacturers";
+import MANUAL_RULES, { STEALTH_MANUFACTURER } from "./manual-manufacturers";
+
+export { STEALTH_MANUFACTURER };
 
 const RULES: Array<[pattern: string, manufacturer: string]> = [
   // Reihenfolge: spezifischere Patterns zuerst
@@ -47,4 +49,12 @@ export function detectManufacturer(modelId: string): string {
     if (id.includes(pattern)) return manufacturer;
   }
   return OTHER_MANUFACTURER;
+}
+
+/**
+ * Stealth-Modelle (Hersteller = STEALTH_MANUFACTURER) sind standalone:
+ * kein abgeleiteter Family-Slug — als Family gilt der Hersteller-Name selbst.
+ */
+export function isStealthModel(modelId: string): boolean {
+  return detectManufacturer(modelId) === STEALTH_MANUFACTURER;
 }
