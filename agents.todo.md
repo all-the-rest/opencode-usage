@@ -6,8 +6,20 @@
 
 ## Offene Todos
 
-_(keine — alle Todos verifiziert und entfernt; nächster Schritt: Nutzer-Test
-auf http://localhost:3712)_
+- [ ] 24. Großes Drill-Down-Feature (Nutzerwunsch „voll interaktiv, Drill-down
+        überall"):
+        a) Schema: directory-Dimension in daily_agg + hourly_agg, Extractor,
+           Komplett-Rebuild + Verifikation
+        b) Server: ?dir=<basename> Filter auf ALLEN /api/stats/* Endpunkten;
+           NEU /api/stats/day/:date (KPIs, Top-Modelle, Top-Projekte,
+           Stundenverlauf, aktive Sessions des Tages); sessions?dir=
+        c) Frontend: globale Projekt-Filterleiste im Layout (?dir= via URL,
+           Badge mit ✕); Dashboard reagiert auf dir; Klick auf Balken/
+           Anteils-Chart/Heatmap-Zelle setzt ?day=YYYY-MM-DD → Tages-
+           Detail-Sektion (teilbar); Projects: „Sessions anzeigen"-Deep-Link
+           (/sessions?dir=…); Sessions liest ?dir=; alle Seiten kombinieren
+           dir + bestehende Filter
+        d) i18n de/en für alle neuen Labels
 
 ## Verifikations-Log
 

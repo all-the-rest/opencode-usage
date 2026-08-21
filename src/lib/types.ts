@@ -124,6 +124,40 @@ export type GroupBy =
   | "model"
   | "total";
 
+// ---------------------------------------------------------------------------
+// Global drill-down contract (todo 24):
+// ALLE /api/stats/* Endpunkte akzeptieren optional ?dir=<basename> und
+// filtern dann auf dieses Projekt-Verzeichnis. Ohne Parameter = global.
+// ---------------------------------------------------------------------------
+
+/** Tages-Detail für ?day=YYYY-MM-DD (Endpoint: GET /api/stats/day/:date). */
+export interface DayDetail {
+  date: string; // YYYY-MM-DD
+  msgCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  cost: number;
+  sessionCount: number;
+  byHour: Array<{ hour: number; msgCount: number }>;
+  byModel: Array<{
+    providerId: string;
+    modelId: string;
+    msgCount: number;
+    totalTokens: number;
+    cost: number;
+  }>;
+  byProject: Array<{
+    directory: string;
+    msgCount: number;
+    totalTokens: number;
+    cost: number;
+  }>;
+  sessions: SessionRow[]; // an diesem Tag aktualisierte Sessions
+}
+
 export interface TimeseriesResponse {
   points: TimeseriesPoint[];
 }
