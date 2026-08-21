@@ -92,6 +92,59 @@ export const i18n = {
     heatmapHour: "Stunde {hour}",
     heatmapDay: "Tag",
     heatmapCount: "{count} Nachrichten",
+
+    // --- Charts / dashboard controls ---
+    chartTokenTrend: "Token-Zeitverlauf",
+    chartCostTrend: "Kostenverlauf",
+    granularity: "Auflösung",
+    granDay: "Tag",
+    granWeek: "Woche",
+    granMonth: "Monat",
+    groupBy: "Gruppieren nach",
+    groupTotal: "Gesamt",
+    groupProvider: "Anbieter",
+    groupFamily: "Familie",
+    tokInput: "Input",
+    tokOutput: "Output",
+    tokReasoning: "Reasoning",
+    tokCacheRead: "Cache-Read",
+    seriesOther: "Andere",
+    heatmapWeek: "Woche",
+    heatmapEmpty: "Keine Aktivität",
+
+    // --- Models page ---
+    modelsBreakdown: "Modell-Aufschlüsselung",
+    modelsByProvider: "Token-Anteil nach Anbieter",
+    modelsByFamily: "Token-Anteil nach Familie",
+    modelsTopCost: "Top 10 Modelle nach Kosten",
+    modelsContext: "Kontextfenster",
+    modelsMetaLoading: "Modell-Metadaten werden geladen…",
+    modelsMetaError: "Metadaten nicht verfügbar – DB-Namen werden verwendet.",
+
+    // --- Projects page ---
+    projectsChart: "Top-Projekte nach Kosten",
+    colLastActivity: "Letzte Aktivität",
+
+    // --- Sessions page ---
+    sessionsFilter: "Filtern (Titel / Verzeichnis)…",
+    sessionsPrev: "Zurück",
+    sessionsNext: "Weiter",
+    sessionsShowing: "Zeige {from}–{to}",
+    sessionsDetail: "Sitzungsdetails",
+    sessionsBreakdown: "Token-Aufschlüsselung",
+    sessionsUntitled: "Ohne Titel",
+
+    // --- Cache analysis (extended) ---
+    cacheRegression: "Regression (r = {r})",
+    cacheScatterX: "Nachrichten",
+    cacheScatterY: "Cache-Hit-Ratio (%)",
+    corrStrong: "Starke {dir} Korrelation",
+    corrWeak: "Schwache {dir} Korrelation",
+    corrNone2: "Keine relevante Korrelation",
+    corrDirPos: "positive",
+    corrDirNeg: "negative",
+    corrValue: "Pearson r = {value}",
+    corrSummary: "Mehr Nachrichten je Sitzung gehen mit {dir} Cache-Hit-Ratio einher.",
   },
   en: {
     // --- App / brand ---
@@ -173,6 +226,59 @@ export const i18n = {
     heatmapHour: "Hour {hour}",
     heatmapDay: "Day",
     heatmapCount: "{count} messages",
+
+    // --- Charts / dashboard controls ---
+    chartTokenTrend: "Token trend",
+    chartCostTrend: "Cost trend",
+    granularity: "Granularity",
+    granDay: "Day",
+    granWeek: "Week",
+    granMonth: "Month",
+    groupBy: "Group by",
+    groupTotal: "Total",
+    groupProvider: "Provider",
+    groupFamily: "Family",
+    tokInput: "Input",
+    tokOutput: "Output",
+    tokReasoning: "Reasoning",
+    tokCacheRead: "Cache read",
+    seriesOther: "Other",
+    heatmapWeek: "Week",
+    heatmapEmpty: "No activity",
+
+    // --- Models page ---
+    modelsBreakdown: "Model breakdown",
+    modelsByProvider: "Token share by provider",
+    modelsByFamily: "Token share by family",
+    modelsTopCost: "Top 10 models by cost",
+    modelsContext: "Context window",
+    modelsMetaLoading: "Loading model metadata…",
+    modelsMetaError: "Metadata unavailable – using DB names.",
+
+    // --- Projects page ---
+    projectsChart: "Top projects by cost",
+    colLastActivity: "Last activity",
+
+    // --- Sessions page ---
+    sessionsFilter: "Filter (title / directory)…",
+    sessionsPrev: "Previous",
+    sessionsNext: "Next",
+    sessionsShowing: "Showing {from}–{to}",
+    sessionsDetail: "Session details",
+    sessionsBreakdown: "Token breakdown",
+    sessionsUntitled: "Untitled",
+
+    // --- Cache analysis (extended) ---
+    cacheRegression: "Regression (r = {r})",
+    cacheScatterX: "Messages",
+    cacheScatterY: "Cache hit ratio (%)",
+    corrStrong: "Strong {dir} correlation",
+    corrWeak: "Weak {dir} correlation",
+    corrNone2: "No relevant correlation",
+    corrDirPos: "positive",
+    corrDirNeg: "negative",
+    corrValue: "Pearson r = {value}",
+    corrSummary: "More messages per session correlate with a {dir} cache hit ratio.",
   },
 } as const;
 
