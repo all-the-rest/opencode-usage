@@ -115,6 +115,20 @@
            per Tooltip)
         d) Hintergrund: opencode-go/hy3 = 1,09 Mio Tokens (Rang 5 nach
            Volumen) aber nur $0.2954 -> fällt in Kosten-Sichten hinten raus
+- [ ] 20. Nutzer-Feedback Runde 2:
+        a) Cache-Analyse: minMessages-Threshold (default 20) ist serverseitig
+           UMGESETZT (commit "feat(server): cache-analysis minMessages");
+           Frontend: Hinweistext im Cache-Analyse-Kartel ("Sessions mit <20
+           Nachrichten ausgeschlossen — Ratio stabilisiert sich erst nach
+           Kontextaufbau"), ggf. Umschalter für Threshold
+        b) NEUES Diagramm (Dashboard): Tagesverlauf der Token-Anteile als
+           100%-gestapeltes AreaChart (input / cache_read / output /
+           reasoning, normalisiert auf je Tag) — Daten sind bereits über
+           getTimeseries(groupBy="total") verfügbar, Normalisierung client-
+           side
+        c) Defaults auf VOLUMEN statt Kosten umstellen: Models Top-Chart
+           (mit Todo 19a-Umschalter, Default Volumen), Projects Balken-
+           diagramm, Sessions-Tabellen-Sortierung
 
 ## Final
 - [ ] 14. Final verify: typecheck, vite build, pnpm start E2E gegen echte DB
