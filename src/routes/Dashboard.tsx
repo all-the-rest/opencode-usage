@@ -47,8 +47,9 @@ import {
   formatTokens,
   shortDay,
   shortMonth,
+  shortWeek,
 } from "../lib/format";
-import { t, useLang, type Lang } from "../lib/i18n";
+import { t, useLang, getLang, type Lang } from "../lib/i18n";
 import { AsyncState, EmptyState, ErrorState, Spinner } from "../components/Async";
 import { ChartCard } from "../components/ChartCard";
 import { KpiCard } from "../components/KpiCard";
@@ -76,7 +77,9 @@ function granTickFmt(g: Granularity): (day: string) => string {
       ? t("granAll")
       : g === "day"
         ? shortDay(day)
-        : shortMonth(day);
+        : g === "week"
+          ? shortWeek(day, getLang())
+          : shortMonth(day);
 }
 
 /**
@@ -1040,7 +1043,7 @@ function HeatmapGrid({
               className="truncate bg-base-200 text-center text-[10px] leading-[1.25rem] text-base-content/50"
               title={label}
             >
-              {shortDay(wk)}
+              {shortWeek(wk, lang)}
             </div>
           );
         })}

@@ -89,6 +89,30 @@ export function shortMonth(day: string): string {
   return day.slice(0, 7);
 }
 
+/**
+ * ISO-8601-Kalenderwoche für ein "YYYY-MM-DD"-Datum (der Week-Bucket der
+ * Timeseries ist der Montag seiner ISO-Woche). Der Donnerstag entscheidet
+ * über das ISO-Jahr (z. B. 2026-01-01 kann in KW 53 von 2025 liegen).
+ */
+export function isoWeek(day: string): { year: number; week: number } {
+  const [y, m, d] = day.split("-").map(Number);
+  const utc = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  const date = new Date(utc);
+  const dayNum = date.getUTCDay() || 7; // So = 7
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum); // Donnerstag dieser Woche
+  const year = date.getUTCFullYear();
+  const yearStart = Date.UTC(year, 0, 1);
+  const week = Math.ceil(((date.getTime() - yearStart) / 86400000 + 1) / 7);
+  return { year, week };
+}
+
+/** Kompaktes KW-Label für Ticks/Spaltenköpfe: "2026-KW34" bzw. "2026-CW34". */
+export function shortWeek(day: string, lang: Lang): string {
+  const { year, week } = isoWeek(day);
+  const ww = String(week).padStart(2, "0");
+  return `${year}-${lang === "de" ? "KW" : "CW"}${ww}`;
+}
+
 /** Basename of a path ("/a/b/c" -> "c"). */
 export function basename(path: string): string {
   const cleaned = path.replace(/\/+$/, "");
