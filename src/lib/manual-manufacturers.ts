@@ -42,4 +42,12 @@ export const MANUAL_FAMILY_RULES: Array<[pattern: string, family: string]> = [
   ["mimo", "mimo"],
   // Muse Spark Contributor & -Free: Katalog sagt fälschlich „muse-free“.
   ["muse", "muse"],
+  // hy3 / hy3-free: Katalog splittet „Hy“ vs. „hy3-free“ → eine Family.
+  ["hy3", "hy"],
+  // Ling-3.0-Familie (Zen -free-Varianten sagen „ling“, OpenRouter
+  // inclusionai/ling-3.0-flash:free fälschlich „ling-flash“).
+  ["ling-3.0", "ling"],
+  // Alle Gemma-Varianten (QAT-Größen, -IT, lokal wie remote) sind EINE
+  // Family „gemma“ — der Katalog splittet „gemma-it-qat“/„gemma-qat“.
+  ["gemma", "gemma"],
 ];

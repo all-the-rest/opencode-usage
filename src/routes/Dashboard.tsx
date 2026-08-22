@@ -64,6 +64,22 @@ const TOKEN_FIELDS = [
 ] as const;
 
 /**
+ * X-Achsen-/Label-Formatierung passend zur Auflösung — von allen
+ * Dashboard-Zeitverlauf-Charts gemeinsam genutzt (Token-Trend, Kosten-
+ * verlauf, Token-Anteile): „Gesamt" → Pseudo-Bucket-Label, Tag → Kurzdatum,
+ * Woche/Monat → Monat(sstart). Vorher nutzten Kosten-/Anteils-Chart immer
+ * Tages-Labels, auch bei Woche/Monat.
+ */
+function granTickFmt(g: Granularity): (day: string) => string {
+  return (day: string) =>
+    g === "all"
+      ? t("granAll")
+      : g === "day"
+        ? shortDay(day)
+        : shortMonth(day);
+}
+
+/**
  * Menschliche Entscheidung (2026-08-21): Reasoning wird zu Output kombiniert
  * (ein Segment), Cache Read zählt in ALLE Totale — KPI „Gesamt-Tokens",
  * Stapel-Totale und Gruppierungs-Ranking verwenden dieselbe Definition.
@@ -555,12 +571,7 @@ function TokenTrendChart({
   );
   // "all" ist ein Pseudo-Bucket ohne reales Datum → kein Drilldown.
   const canDrillDown = granularity !== "all";
-  const tickFmt = (day: string) =>
-    granularity === "all"
-      ? t("granAll")
-      : granularity === "day"
-        ? shortDay(day)
-        : shortMonth(day);
+  const tickFmt = granTickFmt(granularity);
 
   return (
     <ChartCard
@@ -713,7 +724,7 @@ function CostTrendChart({
   const api = usePoll((signal) =>
     getTimeseries(g, "total", signal, { project, from, to }),
   );
-  const tickFmt = (day: string) => (g === "all" ? t("granAll") : shortDay(day));
+  const tickFmt = granTickFmt(g);
 
   return (
     <ChartCard
@@ -746,9 +757,7 @@ function CostTrendChart({
               />
               <Tooltip
                 formatter={(value) => formatCost(Number(value ?? 0))}
-                labelFormatter={(l) =>
-                  g === "all" ? t("granAll") : String(l)
-                }
+                labelFormatter={(l) => tickFmt(String(l))}
               />
               <Bar
                 dataKey="cost"
@@ -795,7 +804,7 @@ function TokenShareChart({
   );
   // Bei „all“ ist der Bucket kein reales Datum → kein Drilldown.
   const canDrillDown = g !== "all";
-  const tickFmt = (day: string) => (g === "all" ? t("granAll") : shortDay(day));
+  const tickFmt = granTickFmt(g);
 
   // Aggregate per day (groupBy="total" -> one point per day) and normalize the
   // four categories to a 0-100% share; keep absolute values for the tooltip.

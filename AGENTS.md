@@ -24,12 +24,23 @@ Analyse-DB: `data/stats.db` (better-sqlite3).
   (/api → localhost:3712). `pnpm start` serviert API + dist/ statisch.
 
 ## Befehle
-- `pnpm sync` – Extractor einmalig / inkrementell
-- `pnpm watch` – Extractor Watch-Modus
-- `pnpm dev` – Vite Dev-Server (API separat: `pnpm start`)
+- `pnpm dev:all` – **Komplette Dev-Umgebung mit EINEM Befehl**: Extractor-Watch
+  + Hono-API (:3712) + Vite (:5173), Ausgaben farbig präfixiert ([watch]/[api]/[web]),
+  Strg+C beendet alle drei sauber; bricht einer ab, stoppt der ganze Stack.
+  Das ist der normale Weg, am Dashboard zu entwickeln.
+- `pnpm sync` – Extractor einmalig / inkrementell (nötig, wenn stats.db hinter
+  opencode.db zurückhängt, z. B. nach Reboot ohne Watch)
+- `pnpm watch` – Extractor Watch-Modus (allein)
+- `pnpm dev` – NUR Vite Dev-Server (kein API-Proxy-Ziel → 502, wenn `pnpm start`
+  nicht separat läuft)
 - `pnpm build` – tsc --noEmit && vite build
 - `pnpm typecheck` – tsc --noEmit
-- `pnpm start` – Hono-API + statisches Frontend
+- `pnpm start` – Hono-API + statisches Frontend (Produktionsart auf :3712)
+
+### Startup-Checkliste (Dev)
+1. `pnpm dev:all` (oder einzeln: `pnpm watch` + `pnpm start` + `pnpm dev`)
+2. Dashboard: http://localhost:5173/ — Daten kommen aus `data/stats.db`;
+   ohne laufenden Watch/Sync fehlt der aktuelle Tag (Heilung: `pnpm sync`).
 
 ## Workflow (wichtig)
 - `agents.todo.md` ist die Todo-Quelle der Wahrheit. Neue Todos dort eintragen.

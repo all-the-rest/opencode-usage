@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:all": "tsx scripts/dev-all.ts",
     "sync": "tsx scripts/extract.ts",
     "watch": "tsx scripts/watch.ts",
     "build": "tsc --noEmit && vite build",

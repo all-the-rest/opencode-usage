@@ -39,6 +39,15 @@ export interface ModelMeta {
 const lookup = buildModelLookup(providers as ProviderMapLike);
 
 /**
+ * Anzeigenamen für Custom-/Local-Provider, die nicht im Katalog stehen.
+ * „openai-local" ist der OpenAI-kompatible Local-Server von LM Studio
+ * (gleiche Modell-IDs wie der lmstudio-Provider, eigener Endpoint).
+ */
+const PROVIDER_NAME_OVERRIDES: Record<string, string> = {
+  "openai-local": "LMStudio",
+};
+
+/**
  * Kuratierte `family` aus dem gebündelten Snapshot — zuerst der direkte
  * Treffer im eigenen Provider (`providers[providerId].models[modelId]`),
  * dann die ocgo-price-tracker-Fallback-Kette (opencode → global →
@@ -127,7 +136,7 @@ export function resolveModelMeta(
     ? STEALTH_MANUFACTURER
     : (catalogFamily(providerId, modelId) ?? heuristicFamily(modelId));
   return {
-    providerName: provider?.name ?? providerId,
+    providerName: PROVIDER_NAME_OVERRIDES[providerId] ?? provider?.name ?? providerId,
     modelName,
     family,
     contextWindow,
