@@ -48,7 +48,9 @@ test("gran=all collapses all three data charts to one bucket", async ({
   const trendBars = page
     .locator(".card", { hasText: "Token-Zeitverlauf" })
     .locator(".recharts-bar-rectangle");
-  await expect(trendBars).toHaveCount(4); // 4 token series × 1 bucket
+  // 3 Token-Serien × 1 Bucket (seit Runde 7 wird Reasoning in Output
+  // gefaltet → Input / Output(inkl. Reasoning) / Cache Read).
+  await expect(trendBars).toHaveCount(3);
 
   const costBars = page
     .locator(".card", { hasText: "Kostenverlauf" })
