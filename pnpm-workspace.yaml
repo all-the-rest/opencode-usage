@@ -3,7 +3,7 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - '@opencode-ai/models@0.0.50'
-  - daisyui@5.7.20
+  - daisyui@5.7.20 || 5.7.21
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
