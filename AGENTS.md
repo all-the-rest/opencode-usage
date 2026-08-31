@@ -27,6 +27,10 @@ Analyse-DB: `data/stats.db` (better-sqlite3).
 - `pnpm dev:all` – **Komplette Dev-Umgebung mit EINEM Befehl**: Extractor-Watch
   + Hono-API (:3712) + Vite (:5173), Ausgaben farbig präfixiert ([watch]/[api]/[web]),
   Strg+C beendet alle drei sauber; bricht einer ab, stoppt der ganze Stack.
+  API läuft via `tsx watch` (Änderungen an server/** → Auto-Reload), Frontend
+  via Vite-HMR — Code-Änderungen brauchen keinen Stack-Neustart.
+  In Dev serviert :3712 **nur die API** (NODE_ENV=development, kein stale
+  dist/) — das LIVE-Dashboard ist http://localhost:5173/.
   Das ist der normale Weg, am Dashboard zu entwickeln.
 - `pnpm sync` – Extractor einmalig / inkrementell (nötig, wenn stats.db hinter
   opencode.db zurückhängt, z. B. nach Reboot ohne Watch)

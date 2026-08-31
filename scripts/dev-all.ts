@@ -60,9 +60,13 @@ function start(
   color: string,
   command: string,
   args: string[],
+  env: NodeJS.ProcessEnv = {},
 ): void {
   const prefix = `${color}[${name}]${COLORS.reset}`;
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(command, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...env },
+  });
   procs.push({ name, child });
   forward(child.stdout, prefix);
   forward(child.stderr, prefix);
@@ -76,7 +80,18 @@ function start(
 }
 
 start("watch", COLORS.cyan, "pnpm", ["exec", "tsx", "scripts/watch.ts"]);
-start("api", COLORS.magenta, "pnpm", ["exec", "tsx", "server/index.ts"]);
+// API mit `tsx watch` → Server-Änderungen (server/**) werden automatisch
+// neu geladen, wie der Extractor-Watch und der Vite-HMR es für die anderen
+// Teile schon tun — kein manueller Neustart des Stacks mehr nötig.
+// NODE_ENV=development: :3712 serviert NUR die API (kein stale dist/),
+// das Frontend kommt live von Vite unter http://localhost:5173/.
+start(
+  "api",
+  COLORS.magenta,
+  "pnpm",
+  ["exec", "tsx", "watch", "server/index.ts"],
+  { NODE_ENV: "development" },
+);
 start("web", COLORS.yellow, "pnpm", ["exec", "vite"]);
 
 console.log(

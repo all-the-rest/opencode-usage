@@ -1,6 +1,7 @@
 /**
  * Dashboard ("/")
- *  - Share dialog (URL params ?share=today|week|month + ?sharehide=1): opens
+ *  - Share dialog (URL params ?share=today|yesterday|week|lastweek|month|lastmonth
+ *    + ?sharehide=1): opens
  *    via the header "Teilen" button or a shared link; shows a server-rendered
  *    statistics card with PNG download / clipboard / SVG actions
  *  - Day-detail drill-down section (URL param ?day=YYYY-MM-DD) at the top
@@ -108,7 +109,8 @@ const GRAN_PARAM = "gran";
 /** URL param for the token-trend grouping (?group=total|provider|…). */
 const GROUP_PARAM = "group";
 /**
- * URL param opening the share dialog (?share=today|week|month). Present with
+ * URL param opening the share dialog (?share=today|yesterday|week|lastweek|month|lastmonth).
+ * Present with
  * a valid value ⇒ dialog open; missing/invalid ⇒ closed (no URL rewrite —
  * same policy as gran/group).
  */
@@ -119,7 +121,14 @@ const SHARE_PROJ_PARAM = "shareproj";
 const SHARE_LANG_PARAM = "sharelang";
 
 const GRANULARITIES = ["day", "week", "month", "all"] as const satisfies readonly Granularity[];
-const SHARE_RANGES = ["today", "week", "month"] as const satisfies readonly ShareRange[];
+const SHARE_RANGES = [
+  "today",
+  "yesterday",
+  "week",
+  "lastweek",
+  "month",
+  "lastmonth",
+] as const satisfies readonly ShareRange[];
 const GROUP_BYS = [
   "total",
   "provider",
@@ -864,12 +873,12 @@ function TokenShareChart({
                 />
                 <YAxis
                   domain={[0, 100]}
-                  tickFormatter={(v) => `${Number(v)}%`}
+                  tickFormatter={(v) => `${Math.round(Number(v))}%`}
                   fontSize={11}
                   width={44}
                 />
                 <Tooltip content={<TokenShareTooltip cats={SHARE_CATS} fmtLabel={tickFmt} />} />
-                <Legend wrapperStyle={{ flexWrap: "wrap" }} />
+                <Legend content={<ShareLegend />} />
                 {SHARE_CATS.map((c) => (
                   <Bar
                     key={c.key}
@@ -892,6 +901,31 @@ function TokenShareChart({
         })()}
       </AsyncState>
     </ChartCard>
+  );
+}
+
+/**
+ * Legend content for the token-share chart: items with proper horizontal gaps
+ * in stack order (Input → Output → Cache-Read, bottom → top). The default
+ * Recharts legend renders without spacing, gluing labels together.
+ */
+function ShareLegend({ payload }: any) {
+  if (!payload?.length) return null;
+  return (
+    <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
+      {payload.map((e: any) => (
+        <li
+          key={e.dataKey ?? e.value}
+          className="inline-flex items-center gap-1.5"
+        >
+          <span
+            className="inline-block h-2 w-2 rounded-full"
+            style={{ backgroundColor: e.color }}
+          />
+          <span>{e.value}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

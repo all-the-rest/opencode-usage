@@ -1059,8 +1059,18 @@ type ShareParams = {
 
 function shareParams(c: Context): ShareParams | { error: string } {
   const raw = c.req.query("range") ?? "today";
-  if (raw !== "today" && raw !== "week" && raw !== "month") {
-    return { error: "invalid range, expected today|week|month" };
+  const validRanges = [
+    "today",
+    "yesterday",
+    "week",
+    "lastweek",
+    "month",
+    "lastmonth",
+  ] as const;
+  if (!(validRanges as readonly string[]).includes(raw)) {
+    return {
+      error: "invalid range, expected today|yesterday|week|lastweek|month|lastmonth",
+    };
   }
   const rawProjects = c.req.query("projects") ?? "all";
   if (rawProjects !== "all" && rawProjects !== "hide" && rawProjects !== "none") {
@@ -1068,7 +1078,7 @@ function shareParams(c: Context): ShareParams | { error: string } {
   }
   const langRaw = c.req.query("lang");
   return {
-    range: raw,
+    range: raw as ShareRange,
     project: c.req.query("project") || undefined,
     projects: rawProjects,
     lang: langRaw === "en" ? "en" : "de",
@@ -1141,9 +1151,12 @@ app.get("/api/stats/meta", (c) =>
 );
 
 // ---------------------------------------------------------------------------
-// Static frontend (production build) + SPA fallback
+// Static frontend (production build) + SPA fallback — bewusst NUR außerhalb
+// von NODE_ENV=development: in der Dev-Umgebung (dev:all) liefert :3712 nur
+// die API, das Frontend kommt live von Vite (:5173). So zeigt :3712 nie ein
+// veraltetes dist/-Build statt des aktuellen Codes.
 // ---------------------------------------------------------------------------
-if (fs.existsSync(DIST_DIR)) {
+if (fs.existsSync(DIST_DIR) && process.env.NODE_ENV !== "development") {
   const staticMW = serveStatic({ root: DIST_DIR });
   app.use("*", (c, next) => {
     if (c.req.path.startsWith("/api")) return next();
