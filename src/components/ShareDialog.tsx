@@ -1,6 +1,7 @@
 /**
  * Share dialog ("Teilen") — daisyUI `modal modal-open`, controlled entirely by
- * URL params (?share=today|week|month, ?shareproj=all|hide|none,
+ * URL params (?share=today|yesterday|week|lastweek|month|lastmonth,
+ * ?shareproj=all|hide|none,
  * ?sharelang=de|en) so any dialog state is a shareable link (rule "URL-Sync").
  *
  * Shows a server-rendered preview card (GET /api/stats/share.svg, 1200×630,
@@ -17,16 +18,31 @@ import { useEffect, useRef, useState } from "react";
 import type { Lang } from "../lib/i18n";
 import { t } from "../lib/i18n";
 
-export type ShareRange = "today" | "week" | "month";
+export type ShareRange =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "lastweek"
+  | "month"
+  | "lastmonth";
 export type ShareProjectsMode = "all" | "hide" | "none";
 
 const RANGES: {
   value: ShareRange;
-  labelKey: "shareToday" | "shareWeek" | "shareMonth";
+  labelKey:
+    | "shareToday"
+    | "shareYesterday"
+    | "shareWeek"
+    | "shareLastWeek"
+    | "shareMonth"
+    | "shareLastMonth";
 }[] = [
   { value: "today", labelKey: "shareToday" },
+  { value: "yesterday", labelKey: "shareYesterday" },
   { value: "week", labelKey: "shareWeek" },
+  { value: "lastweek", labelKey: "shareLastWeek" },
   { value: "month", labelKey: "shareMonth" },
+  { value: "lastmonth", labelKey: "shareLastMonth" },
 ];
 
 const PROJECT_MODES: {
@@ -41,9 +57,15 @@ const PROJECT_MODES: {
 function rangeLabelKey(range: ShareRange) {
   return range === "today"
     ? "shareToday"
-    : range === "week"
-      ? "shareWeek"
-      : "shareMonth";
+    : range === "yesterday"
+      ? "shareYesterday"
+      : range === "week"
+        ? "shareWeek"
+        : range === "lastweek"
+          ? "shareLastWeek"
+          : range === "month"
+            ? "shareMonth"
+            : "shareLastMonth";
 }
 
 /** Query string shared by all three share endpoints. */

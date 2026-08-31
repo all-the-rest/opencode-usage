@@ -19,7 +19,13 @@ import { Resvg } from "@resvg/resvg-js";
 import type { DatabaseType } from "./db";
 import { cacheHitRatio, num } from "./db";
 
-export type ShareRange = "today" | "week" | "month";
+export type ShareRange =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "lastweek"
+  | "month"
+  | "lastmonth";
 export type ShareLang = "de" | "en";
 /**
  * Tri-State für die Projektsektion:
@@ -94,15 +100,34 @@ export function resolveRangeWindow(
     const day = ymdLocal(now);
     return { start: day, end: day };
   }
+  if (range === "yesterday") {
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const day = ymdLocal(yesterday);
+    return { start: day, end: day };
+  }
   if (range === "week") {
     const mon = mondayOf(now);
     const sun = new Date(mon);
     sun.setDate(sun.getDate() + 6);
     return { start: ymdLocal(mon), end: ymdLocal(sun) };
   }
-  // month: erster bis letzter Tag des aktuellen Monats
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  if (range === "lastweek") {
+    const mon = new Date(mondayOf(now));
+    mon.setDate(mon.getDate() - 7);
+    const sun = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+    return { start: ymdLocal(mon), end: ymdLocal(sun) };
+  }
+  if (range === "month") {
+    // month: erster bis letzter Tag des aktuellen Monats
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { start: ymdLocal(first), end: ymdLocal(last) };
+  }
+  // lastmonth: erster bis letzter Tag des Vormonats
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
   return { start: ymdLocal(first), end: ymdLocal(last) };
 }
 
@@ -168,8 +193,11 @@ const LABELS = {
     recWorstCache: "Schlechteste Cache-Hit-Rate",
     noData: "—",
     periodToday: "Heute",
+    periodYesterday: "Gestern",
     periodWeek: "Diese Woche",
+    periodLastWeek: "Letzte Woche",
     periodMonth: "Dieser Monat",
+    periodLastMonth: "Letzter Monat",
     projectN: (i: number) => `Projekt ${i}`,
   },
   en: {
@@ -189,8 +217,11 @@ const LABELS = {
     recWorstCache: "Worst cache-hit rate",
     noData: "—",
     periodToday: "Today",
+    periodYesterday: "Yesterday",
     periodWeek: "This week",
+    periodLastWeek: "Last week",
     periodMonth: "This month",
+    periodLastMonth: "Last month",
     projectN: (i: number) => `Project ${i}`,
   },
 } as const;
@@ -270,7 +301,7 @@ export function getShareData(
     const projRows = db
       .prepare(
         `SELECT directory,
-                SUM(input_tokens + output_tokens + reasoning_tokens) AS tokens
+                SUM(input_tokens + output_tokens + reasoning_tokens + cache_read) AS tokens
          FROM daily_agg
          WHERE day BETWEEN ? AND ?${pj.sql}
          GROUP BY directory
@@ -320,25 +351,26 @@ export function getShareData(
     )
     .get(...sessParams) as { title: string | null; ratio: number } | undefined;
 
-  // Stärkster Tag nur für week/month — bei „today“ trivial (Todo 28e).
-  const strongestDay =
-    opts.range === "today"
-      ? undefined
-      : (db
-          .prepare(
-            `SELECT day, SUM(input_tokens + output_tokens + reasoning_tokens) AS tokens
-             FROM daily_agg
-             WHERE day BETWEEN ? AND ?${pj.sql}
-             GROUP BY day ORDER BY tokens DESC LIMIT 1`,
-          )
-          .get(start, end, ...pj.params) as
-        | { day: string; tokens: number }
-        | undefined);
+  // Stärkster Tag nur für Mehr-Tages-Ranges (week/lastweek/month/lastmonth) —
+  // bei Einzel-Tages-Ranges (today/yesterday) trivial (Todo 28e).
+  const isSingleDay = opts.range === "today" || opts.range === "yesterday";
+  const strongestDay = isSingleDay
+    ? undefined
+    : (db
+        .prepare(
+          `SELECT day, SUM(input_tokens + output_tokens + reasoning_tokens + cache_read) AS tokens
+           FROM daily_agg
+           WHERE day BETWEEN ? AND ?${pj.sql}
+           GROUP BY day ORDER BY tokens DESC LIMIT 1`,
+        )
+        .get(start, end, ...pj.params) as
+      | { day: string; tokens: number }
+      | undefined);
 
-  // Schlechteste Cache-Hit-Rate nur für „today“: Sessions mit > 10
-  // Nachrichten und positivem Nenner (input+cache_read+cache_write).
+  // Schlechteste Cache-Hit-Rate nur für Einzel-Tages-Ranges (today/yesterday):
+  // Sessions mit > 10 Nachrichten und positivem Nenner (input+cache_read+cache_write).
   const worstCache =
-    opts.range !== "today"
+    !isSingleDay
       ? undefined
       : (db
           .prepare(
@@ -397,21 +429,23 @@ export function getShareData(
     );
   let periodLabel: string;
   let periodDetail: string;
-  if (opts.range === "today") {
-    periodLabel = L.periodToday;
+  if (opts.range === "today" || opts.range === "yesterday") {
+    periodLabel = opts.range === "today" ? L.periodToday : L.periodYesterday;
     periodDetail = fmtDate(start);
-  } else if (opts.range === "week") {
-    periodLabel = L.periodWeek;
+  } else if (opts.range === "week" || opts.range === "lastweek") {
+    periodLabel = opts.range === "week" ? L.periodWeek : L.periodLastWeek;
     periodDetail =
       lang === "de"
         ? `${fmtDate(start)} – ${fmtDate(end)}`
         : `${fmtDate(start)} – ${fmtDate(end)}`;
   } else {
-    periodLabel = L.periodMonth;
+    periodLabel = opts.range === "month" ? L.periodMonth : L.periodLastMonth;
+    const monthDate =
+      opts.range === "month" ? new Date() : new Date(`${start}T00:00:00`);
     periodDetail = new Intl.DateTimeFormat(locale, {
       month: "long",
       year: "numeric",
-    }).format(new Date());
+    }).format(monthDate);
   }
 
   return {
@@ -472,12 +506,12 @@ export function renderShareCard(data: ShareData): string {
     [L.cacheHit, fmtRatio(data.cacheHitRatio)],
   ];
 
-  // 4. Rekord-Badge: „today“ → schlechteste Cache-Hit-Rate,
-  // week/month → stärkster Tag (Todo 28e).
-  const fourth =
-    data.range === "today"
-      ? { label: L.recWorstCache, rec: data.records.worstCache }
-      : { label: L.recStrongestDay, rec: data.records.strongestDay };
+  // 4. Rekord-Badge: Einzel-Tag (today/yesterday) → schlechteste Cache-Hit-Rate,
+  // week/lastweek/month/lastmonth → stärkster Tag (Todo 28e).
+  const singleDay = data.range === "today" || data.range === "yesterday";
+  const fourth = singleDay
+    ? { label: L.recWorstCache, rec: data.records.worstCache }
+    : { label: L.recStrongestDay, rec: data.records.strongestDay };
 
   const recordEntries: Array<[string, ShareRecord | null]> = [
     [L.recLongest, data.records.longestSession],
