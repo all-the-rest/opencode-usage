@@ -7,6 +7,17 @@ read-only öffnen). better-sqlite3 v13 unterstützt den `file:?mode=ro`-URI
 hier nicht — verwende `new Database(path, { fileMustExist: true, readonly: true })`.
 Analyse-DB: `data/stats.db` (better-sqlite3).
 
+**Einzige Schreib-Ausnahme auf die Quell-DB** ist `scripts/prune-source.ts`
+(`pnpm prune-source` — Achtung: `pnpm prune` ist pnpm-eigen und nicht unser
+Script; Automatik in `pnpm watch`): Retention in KALENDERMONATEN,
+konfigurierbar, Default 1 ⇒ Cutoff = 1. des aktuellen Monats (Vorrang
+`--cutoff YYYY-MM-DD`/`--days N` > `--months N` > Env `PRUNE_RETENTION_MONTHS`
+> 1). Löscht nur `session_message`-Zeilen (Sessions bleiben vorerst), NUR nach
+sync → Preflight-Check → Backup (`VACUUM INTO` →
+`~/.local/share/opencode/opencode-backup-YYYYMMDD.db`, rotierend). `--full`
+nach einem Prune braucht `--force` (Guard in extract.ts). Details:
+docs/stats-db-schema.md.
+
 ## Konventionen
 - pnpm, Node >= 22, TypeScript strict (`noUncheckedIndexedAccess` an).
 - React 19 + React Compiler (babel-plugin-react-compiler in vite.config).

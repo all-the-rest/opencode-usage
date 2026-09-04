@@ -12,6 +12,8 @@
     "dev:all": "tsx scripts/dev-all.ts",
     "sync": "tsx scripts/extract.ts",
     "watch": "tsx scripts/watch.ts",
+    "prune-source": "tsx scripts/prune-source.ts",
+    "test:prune": "tsx scripts/test-prune.ts",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "start": "tsx server/index.ts",

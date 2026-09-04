@@ -8,6 +8,11 @@
  * ("unable to open database file") on this WAL database — the strict-read-only
  * equivalent is the `{ readonly: true }` option, which is what we use.
  *
+ * Retention: the ONLY code in this project that ever writes to the source DB is
+ * scripts/prune-source.ts (deletes old messages once stats.db holds them). A
+ * full rebuild after a prune is refused unless explicitly forced — it would
+ * silently drop the pruned history from stats.db (see the guard in sync()).
+ *
  * Incremental sync: only messages with time_created >= last_sync are processed
  * (idempotent via INSERT OR REPLACE on message_id); the affected aggregate keys
  * (sessions_agg / daily_agg / hourly_agg / project_agg) are recomputed via
@@ -28,8 +33,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(scriptDir, '..');
 
-export const SOURCE_DB = path.join(os.homedir(), '.local/share/opencode/opencode.db');
-export const ANALYSIS_DB = path.join(PROJECT_ROOT, 'data', 'stats.db');
+// Env-Overrides (SOURCE_DB_PATH / STATS_DB_PATH) gibt es NUR für Tests gegen
+// Kopien/Fixtures der echten DBs (siehe scripts/test-prune.ts) — im normalen
+// Betrieb niemals setzen.
+export const SOURCE_DB =
+  process.env.SOURCE_DB_PATH ?? path.join(os.homedir(), '.local/share/opencode/opencode.db');
+export const ANALYSIS_DB =
+  process.env.STATS_DB_PATH ?? path.join(PROJECT_ROOT, 'data', 'stats.db');
 
 // ---------------------------------------------------------------------------
 // local-time helpers — the analysis DB stores day as local YYYY-MM-DD and hour
@@ -53,6 +63,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+/** meta-Wert aus der Analyse-DB lesen (null, wenn nicht gesetzt). */
+function metaValue(db: Database.Database, key: string): string | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+/** Kompakter lokaler Zeitstempel für Meldungen (YYYY-MM-DD HH:MM). */
+function localStampMs(ms: number): string {
+  const d = new Date(ms);
+  return `${localDay(ms)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,12 +209,23 @@ export interface SyncResult {
 // ---------------------------------------------------------------------------
 // sync
 // ---------------------------------------------------------------------------
-export function sync(opts: { full?: boolean } = {}): SyncResult {
+export function sync(
+  opts: {
+    full?: boolean;
+    /** Full-Rebuild nach einem Prune bewusst erzwingen (--force). */
+    force?: boolean;
+    /** Pfade nur für Tests gegen Fixtures; Default: SOURCE_DB / ANALYSIS_DB. */
+    sourceDb?: string;
+    analysisDb?: string;
+  } = {},
+): SyncResult {
   const startedAt = Date.now();
   let full = opts.full === true;
+  const sourceDb = opts.sourceDb ?? SOURCE_DB;
+  const analysisDb = opts.analysisDb ?? ANALYSIS_DB;
 
-  fs.mkdirSync(path.dirname(ANALYSIS_DB), { recursive: true });
-  const analysis = new Database(ANALYSIS_DB);
+  fs.mkdirSync(path.dirname(analysisDb), { recursive: true });
+  const analysis = new Database(analysisDb);
   try {
     analysis.pragma('journal_mode = WAL');
     initAnalysisDb(analysis);
@@ -214,6 +249,33 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
 
     let lastSync: number;
     if (full) {
+      // Retention-Guard (meta.source_pruned_until, gesetzt von
+      // scripts/prune-source.ts): Nach dem Löschen alter Messages in der Quelle
+      // würde ein Full-Rebuild die gelöschte History still aus stats.db
+      // entfernen. Wir vergleichen bewusst NICHT MIN(time_created) der Quelle:
+      // nach einem Prune liegt das Minimum immer am/über dem Cutoff (und MIN
+      // über alle types wäre ohnehin nur ein grober Proxy — der Extractor zählt
+      // nur type='assistant'). Die Faustregel ist deshalb konservativ: JEDEr
+      // Full-Rebuild nach einem Prune braucht --force (z. B. nach Restore aus
+      // einem Backup). Inkrementelle Syncs sind nie betroffen.
+      const prunedUntilRaw = metaValue(analysis, 'source_pruned_until');
+      if (prunedUntilRaw != null) {
+        const ms = Number(prunedUntilRaw);
+        const when = Number.isFinite(ms) ? localStampMs(ms) : prunedUntilRaw;
+        if (!opts.force) {
+          throw new Error(
+            `[extract] FULL-Rebuild verweigert: Die Quelle wurde bis ${when} gekürzt ` +
+              '(stats.db meta.source_pruned_until). Ein Full-Rebuild würde diese History ' +
+              'endgültig aus stats.db entfernen. Quelle aus einem Backup (opencode-backup-*.db) ' +
+              'wiederherstellen und erneut laufen lassen — oder bewusst mit --force bzw. ' +
+              'sync({ force: true }) erzwingen.',
+          );
+        }
+        console.warn(
+          `[extract] --force: Full-Rebuild trotz source_pruned_until = ${when} — die vor ` +
+            'dem Prune gelöschte History wird aus stats.db entfernt.',
+        );
+      }
       analysis.exec(
         'DELETE FROM messages; DELETE FROM sessions_agg; DELETE FROM daily_agg; DELETE FROM hourly_agg; DELETE FROM project_agg;',
       );
@@ -230,7 +292,7 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
     // The legacy `message` table was fully migrated into `session_message`
     // (FK -> session_v2). The 31 ids remaining solely in `message` are
     // migration artifacts (a stale client left open) and are out of scope.
-    const source = new Database(SOURCE_DB, { fileMustExist: true, readonly: true });
+    const source = new Database(sourceDb, { fileMustExist: true, readonly: true });
     try {
       // session -> directory map (ALL sessions) for per-message directory
       // attribution in daily_agg / hourly_agg. Orphan messages (session not in
@@ -242,6 +304,11 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
         sessionDir.set(r.id, r.directory);
       }
 
+      // Streaming statt .all(): jede Zeile trägt ein ~55-KB-JSON (`data`) — bei
+      // 90k+ Messages materialisiert .all() mehrere GB Heap (OOM im Full-Rebuild,
+      // auch nach Prune: allein August = 71k Messages). iterate() hält nur die
+      // kompakte Projektion in `items` (~200 B/Zeile), die Raw-Zeile wird pro
+      // Iteration GC-fähig.
       const selectMsgs = source.prepare(`
         SELECT id, session_id, time_created, data
         FROM session_message
@@ -250,14 +317,14 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
           AND json_extract(data, '$.tokens') IS NOT NULL
         ORDER BY time_created ASC
       `);
-      const rawMsgs = selectMsgs.all(lastSync) as SourceMessageRow[];
 
       const items: Array<Record<string, unknown>> = [];
       const affectedSessions = new Set<string>();
       const affectedDays = new Set<string>();
       let maxTime = lastSync;
+      let newMessages = 0;
 
-      for (const r of rawMsgs) {
+      for (const r of selectMsgs.iterate(lastSync) as IterableIterator<SourceMessageRow>) {
         let data: any;
         try {
           data = JSON.parse(r.data);
@@ -285,6 +352,7 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
         affectedSessions.add(r.session_id);
         affectedDays.add(localDay(r.time_created));
         if (r.time_created > maxTime) maxTime = r.time_created;
+        newMessages++;
       }
 
       // session metadata for affected sessions (also reveals orphans)
@@ -575,11 +643,11 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
         }
 
         setMeta.run('last_sync', String(maxTime));
-        setMeta.run('source_db', SOURCE_DB);
+        setMeta.run('source_db', sourceDb);
       });
       write();
 
-      return { newMessages: rawMsgs.length, durationMs: Date.now() - startedAt, full };
+      return { newMessages, durationMs: Date.now() - startedAt, full };
     } finally {
       source.close();
     }
@@ -593,7 +661,8 @@ export function sync(opts: { full?: boolean } = {}): SyncResult {
 // ---------------------------------------------------------------------------
 function main(): void {
   const full = process.argv.includes('--full');
-  const res = sync({ full });
+  const force = process.argv.includes('--force');
+  const res = sync({ full, force });
   console.log(
     `[extract] ${res.full ? 'FULL rebuild' : 'incremental'} — ${res.newMessages} new message(s) in ${res.durationMs} ms (${(res.durationMs / 1000).toFixed(2)}s)`,
   );
