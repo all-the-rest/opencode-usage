@@ -4,10 +4,10 @@
  * Obermenge von allem, was aus der Quelle gelöscht wird — die Reihenfolge ist
  * immer sync → Preflight-Check → Backup → löschen.
  *
- * Retention: konfigurierbar in Kalendermonaten, Default 1. Cutoff = lokaler 1.
+ * Retention: konfigurierbar in Kalendermonaten, Default 2. Cutoff = lokaler 1.
  * des Monats, (retentionMonths − 1) Monate zurück — Default also der 1. des
  * AKTUELLEN Monats (im September wird alles vor dem 1.9. gelöscht). Vorrang:
- * --cutoff YYYY-MM-DD / --days N > --months N > Env PRUNE_RETENTION_MONTHS > 1.
+ * --cutoff YYYY-MM-DD / --days N > --months N > Env PRUNE_RETENTION_MONTHS > 2.
  * session_v2 (Sessions) bleibt in V1 unberührt (alte Sessions existieren leer
  * weiter; Session-Pruning ist V2).
  *
@@ -33,7 +33,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ANALYSIS_DB, SOURCE_DB, sync } from './extract';
 
-export const DEFAULT_RETENTION_MONTHS = 1;
+export const DEFAULT_RETENTION_MONTHS = 2;
 
 // ---------------------------------------------------------------------------
 // cutoff / retention helpers
@@ -44,7 +44,7 @@ function pad2(n: number): string {
 
 /**
  * Retention in Kalendermonaten. Vorrang: opts.months (CLI --months) >
- * Env PRUNE_RETENTION_MONTHS > Default 1. Ungültige Werte werden abgelehnt.
+ * Env PRUNE_RETENTION_MONTHS > Default 2. Ungültige Werte werden abgelehnt.
  */
 export function resolveRetentionMonths(opts: { months?: number } = {}): number {
   let months = opts.months;
@@ -74,7 +74,7 @@ export interface CutoffOptions {
   cutoffDate?: string;
   /** Cutoff = jetzt minus N Tage. */
   days?: number;
-  /** Retention in Kalendermonaten (Default 1 → 1. des aktuellen Monats). */
+  /** Retention in Kalendermonaten (Default 2 → 1. des Vormonats). */
   months?: number;
 }
 
@@ -549,9 +549,9 @@ unberührt.
   --yes                wirklich löschen (ohne --yes: Dry-Run, nur melden)
   --cutoff YYYY-MM-DD  expliziter Cutoff, lokales Datum (überschreibt --months)
   --days N             Cutoff = jetzt minus N Tage (überschreibt --months)
-  --months N           Retention in Kalendermonaten, Default 1 → Cutoff = 1. des
-                       aktuellen Monats (2 → 1. des Vormonats). Vorrang:
-                       --months > Env PRUNE_RETENTION_MONTHS > Default 1
+  --months N           Retention in Kalendermonaten, Default 2 → Cutoff = 1. des
+                       Vormonats (1 → 1. des aktuellen Monats). Vorrang:
+                       --months > Env PRUNE_RETENTION_MONTHS > Default 2
   --vacuum             VACUUM der Quelle NACH dem Löschen — OpenCode muss dafür
                        geschlossen sein
   --force              rein informativ: zeigt den source_pruned_until-Stand

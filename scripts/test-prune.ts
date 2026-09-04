@@ -15,7 +15,7 @@
  *  5. Full-Guard         — sync({full}) verweigert ohne --force, läuft mit --force
  *  6. Preflight-Mismatch — manipulierte stats.db ⇒ Abbruch, Quelle unangetastet
  *  7. Dry-Run            — Default (ohne --yes) ändert NICHTS (kein Backup, keine meta-Writes)
- *  8. Retention 1 vs 2   — konfigurierbare Kalendermonate (Default 1; 2 = Verhalten V1-Plan)
+ *  8. Retention 1 vs 2   — konfigurierbare Kalendermonate (Default 2; 1 = enger per --months)
  *
  * pnpm test:prune
  */
@@ -547,12 +547,12 @@ function scenarioDryRun(): void {
 }
 
 function scenarioRetentionMonths(): void {
-  // --- Unit: Vorrang CLI --months > Env PRUNE_RETENTION_MONTHS > Default 1 ---
+  // --- Unit: Vorrang CLI --months > Env PRUNE_RETENTION_MONTHS > Default 2 ---
   const prevEnv = process.env.PRUNE_RETENTION_MONTHS;
   try {
     delete process.env.PRUNE_RETENTION_MONTHS;
-    assertEqual(resolveRetentionMonths(), 1, 'Default-Retention ist 1 Monat');
-    assertEqual(resolveRetentionMonths({ months: 2 }), 2, '--months überschreibt Default');
+    assertEqual(resolveRetentionMonths(), 2, 'Default-Retention ist 2 Monate');
+    assertEqual(resolveRetentionMonths({ months: 1 }), 1, '--months überschreibt Default');
     process.env.PRUNE_RETENTION_MONTHS = '3';
     assertEqual(resolveRetentionMonths(), 3, 'Env wird gelesen');
     assertEqual(resolveRetentionMonths({ months: 2 }), 2, '--months schlägt Env');
@@ -608,7 +608,7 @@ function scenarioRetentionMonths(): void {
       };
     };
 
-    // retention 1 (Default): Vormonat wird schon gelöscht.
+    // retention 1 (per --months): Vormonat wird schon gelöscht.
     const f1 = makeRetentionFixture('ret1');
     sync({ full: true, sourceDb: f1.sourceDb, analysisDb: f1.statsDb });
     const r1 = pruneSource({
@@ -629,7 +629,7 @@ function scenarioRetentionMonths(): void {
     assertEqual(readMetaMap(f1.statsDb).source_retention_months, '1', 'meta: source_retention_months = 1');
     assertEqual(readMetaMap(f1.statsDb).source_pruned_until, String(f1.cutoff1), 'meta: source_pruned_until = cutoff1');
 
-    // retention 2 (ursprüngliches V1-Verhalten): Vormonat bleibt.
+    // retention 2 (Default): Vormonat bleibt.
     const f2 = makeRetentionFixture('ret2');
     sync({ full: true, sourceDb: f2.sourceDb, analysisDb: f2.statsDb });
     const r2 = pruneSource({
@@ -676,7 +676,7 @@ const scenarios: Array<[string, () => void]> = [
   ['5 Full-Guard (verweigert ohne --force, läuft mit)', scenarioFullGuard],
   ['6 Preflight-Mismatch (Abbruch, Quelle unangetastet)', scenarioPreflightMismatch],
   ['7 Dry-Run-Default (nichts geschrieben)', scenarioDryRun],
-  ['8 Retention 1 vs 2 (Kalendermonate, Default 1)', scenarioRetentionMonths],
+  ['8 Retention 1 vs 2 (Kalendermonate, Default 2)', scenarioRetentionMonths],
 ];
 
 let passed = 0;

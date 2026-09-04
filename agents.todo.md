@@ -42,9 +42,12 @@ entfernt:
   >0 Zeilen, Tages-Gate, Fehler killen den Loop nicht); Fixture-Tests
   `pnpm test:prune` (8 Szenarien); CI-Workflow (typecheck+build+test:prune);
   Doku in AGENTS.md + docs/stats-db-schema.md.
-- **Retention-Änderung (Nutzer):** konfigurierbar in KALENDERMONATEN, Default 1
-  ⇒ Cutoff = 1. des aktuellen Monats (Vorrang `--cutoff`/`--days` > `--months` >
-  Env `PRUNE_RETENTION_MONTHS` > 1). meta: zusätzlich `source_retention_months`.
+- **Retention-Änderung (Nutzer):** konfigurierbar in KALENDERMONATEN, Default **2**
+  (Nutzer-Entscheid 04.09.: August soll im September bleiben — „kleinerer Wert
+  besser" wurde zugunsten Default 2 verworfen; 1 bleibt per `--months 1` /
+  Env `PRUNE_RETENTION_MONTHS=1` wählbar) ⇒ Cutoff = 1. des Vormonats
+  (Vorrang `--cutoff`/`--days` > `--months` >
+  Env `PRUNE_RETENTION_MONTHS` > 2). meta: zusätzlich `source_retention_months`.
 - **Script-Name:** `pnpm prune-source` (pnpm-eigenes `prune`-Kommando kollidiert).
 - **OOM-Fix (Orchestrator):** Full-Rebuild materialisierte alle Messages
   (`.all()`; ~55-KB-`data`-JSONs ⇒ >4 GB Heap ⇒ OOM). Fix: `stmt.iterate()`

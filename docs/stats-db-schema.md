@@ -138,11 +138,12 @@ die Reihenfolge ist immer sync → Preflight → Backup → löschen. Es ist die
 EINZIGE Stelle im Projekt, die je an die Quell-DB schreibt (für den DELETE mit
 Lese-Schreib-Zugriff; sonst überall strikt read-only).
 
-- **Cutoff / Retention**: in Kalendermonaten konfigurierbar, Default **1 Monat**.
-  Cutoff = lokaler 1. des Monats, (retention − 1) Monate zurück — bei Default 1
-  also der 1. des AKTUELLEN Monats (alles davor wird gelöscht); 2 ⇒ 1. des
-  Vormonats. Vorrang: `--cutoff YYYY-MM-DD` / `--days N` > `--months N` >
-  Env `PRUNE_RETENTION_MONTHS` > Default 1.
+- **Cutoff / Retention**: in Kalendermonaten konfigurierbar, Default **2 Monate**.
+  Cutoff = lokaler 1. des Monats, (retention − 1) Monate zurück — bei Default 2
+  also der 1. des VORMONATS (alles davor wird gelöscht; im September werden
+  Juli und älter gelöscht, August bleibt); 1 ⇒ 1. des aktuellen Monats.
+  Vorrang: `--cutoff YYYY-MM-DD` / `--days N` > `--months N` >
+  Env `PRUNE_RETENTION_MONTHS` > Default 2.
 - **Umfang**: nur `session_message`-Zeilen (`DELETE … WHERE time_created <
   cutoff` in einer Transaktion + `wal_checkpoint(TRUNCATE)`). `session_v2`
   (Sessions) bleibt unberührt (Session-Pruning = V2).
