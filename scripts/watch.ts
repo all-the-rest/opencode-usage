@@ -1,11 +1,19 @@
 /**
  * Watch mode: polls the mtime of opencode.db and opencode.db-wal every 2s and
  * runs the same incremental sync (scripts/extract.ts -> sync()) when either
- * changes. Clean shutdown on SIGINT/SIGTERM.
+ * changes. After every successful sync, maybePrune() runs the Quell-DB-Retention
+ * (scripts/prune-source.ts) — prune errors never stop the loop. Clean shutdown
+ * on SIGINT/SIGTERM.
  */
 
 import fs from 'node:fs';
-import { sync, SOURCE_DB } from './extract';
+import { localDay, sync, SOURCE_DB } from './extract';
+import {
+  countPrunableRows,
+  pruneSource,
+  resolveCutoffMs,
+  resolveRetentionMonths,
+} from './prune-source';
 
 const POLL_MS = 2000;
 
@@ -37,10 +45,51 @@ function tick(): void {
     console.log(
       `[watch] change detected — synced ${res.newMessages} new message(s) in ${res.durationMs} ms`,
     );
+    // Der Sync war erfolgreich → jetzt darf die Retention laufen (Invariante:
+    // erst sync, dann prune).
+    maybePrune();
   } catch (e) {
     console.error('[watch] sync error:', e);
   } finally {
     running = false;
+  }
+}
+
+// --- Quell-DB-Retention (maybePrune) ----------------------------------------
+// Gate: höchstens ein ERFOLGREICHER Prune pro Tag (Datum-Compare in dieser
+// Modul-Variable). Der COUNT=0-Vorcheck auf der Quelle (read-only, Index auf
+// time_created) macht tägliche Läufe billig: bei 0 gibt es kein Backup und
+// keine meta-Writes, der Tag gilt als erledigt. Bei einem Fehler wird der Tag
+// NICHT markiert → nächster Versuch beim nächsten Sync; der Watch-Loop endet
+// nie an einem Prune-Fehler.
+let pruneDoneDay = '';
+
+function maybePrune(): void {
+  const today = localDay(Date.now());
+  if (today === pruneDoneDay) return;
+  try {
+    // Retention in Kalendermonaten: Env PRUNE_RETENTION_MONTHS, Default 1
+    // (= Cutoff 1. des aktuellen Monats).
+    const retentionMonths = resolveRetentionMonths();
+    const cutoffMs = resolveCutoffMs({ months: retentionMonths });
+    if (countPrunableRows(SOURCE_DB, cutoffMs) === 0) {
+      pruneDoneDay = today;
+      return;
+    }
+    // tick() hat sync() VOR diesem Aufruf bereits erfolgreich ausgeführt,
+    // deshalb syncFirst: false (Reihenfolge sync → prune ist die Invariante).
+    const res = pruneSource({ yes: true, syncFirst: false, cutoffMs, retentionMonths });
+    pruneDoneDay = today;
+    if (res.deleted > 0) {
+      console.log(
+        `[watch] prune: ${res.deleted} message(s) vor ${localDay(res.cutoffMs)} gelöscht ` +
+          `(retention ${retentionMonths} Monat(e), backup: ${res.backupPath ?? 'keins'})`,
+      );
+    } else {
+      console.log('[watch] prune: nichts gelöscht (Kandidaten zwischenzeitlich verschwunden)');
+    }
+  } catch (e) {
+    console.error('[watch] prune error (retry after next sync):', e);
   }
 }
 

@@ -1,0 +1,29 @@
+# CI: typecheck + build + Retention-Fixture-Tests. Keine Playwright-Tests im
+# CI — die brauchen einen Browser + laufenden Stack und laufen lokal.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm-Version kommt aus dem packageManager-Feld der package.json
+      # (pnpm/action-setup@v4 ohne version-Input leitet sie daraus ab).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test:prune

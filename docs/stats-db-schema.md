@@ -1,8 +1,9 @@
 # Analyse-DB Schema (`data/stats.db`)
 
 Gebaut von `scripts/extract.ts` (better-sqlite3). Quelle:
-`~/.local/share/opencode/opencode.db` — IMMER read-only öffnen:
-`new Database("file:" + src + "?mode=ro", { fileMustExist: true })`.
+`~/.local/share/opencode/opencode.db` — IMMER strikt read-only öffnen:
+`new Database(src, { fileMustExist: true, readonly: true })` (der
+`file:?mode=ro`-URI funktioniert mit better-sqlite3 v13 nicht).
 
 ## Tabellen
 
@@ -84,7 +85,10 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
--- meta keys: last_sync (epoch ms ISO), source_db (pfad)
+-- meta keys: last_sync (epoch ms), source_db (pfad),
+--            source_pruned_until (cutoff, epoch ms), source_pruned_at (epoch ms),
+--            source_pruned_count (kumulativ gelöschte Zeilen),
+--            source_retention_months (Retention zum letzten Prune)
 ```
 
 ## Extraktionsregeln
@@ -123,3 +127,46 @@ Vor der Migration las der Extractor aus der Tabelle `message`:
 `model_id = data.modelID` (flat), `time_created = data.time.created`.
 Diese Felder existieren im v2-Format nicht mehr (jetzt verschachtelt unter
 `data.model`).
+
+## Retention (Quell-DB kürzen)
+
+`scripts/prune-source.ts` (`pnpm prune-source` — `pnpm prune` ist das eingebaute
+pnpm-Kommando und wird NICHT unser Script; Automatik in `pnpm watch`) löscht alte
+`session_message`-Zeilen aus der QUELL-DB, sobald stats.db sie vollständig
+übernommen hat. Invariante: stats.db ist eine Obermenge des Löschbereichs;
+die Reihenfolge ist immer sync → Preflight → Backup → löschen. Es ist die
+EINZIGE Stelle im Projekt, die je an die Quell-DB schreibt (für den DELETE mit
+Lese-Schreib-Zugriff; sonst überall strikt read-only).
+
+- **Cutoff / Retention**: in Kalendermonaten konfigurierbar, Default **1 Monat**.
+  Cutoff = lokaler 1. des Monats, (retention − 1) Monate zurück — bei Default 1
+  also der 1. des AKTUELLEN Monats (alles davor wird gelöscht); 2 ⇒ 1. des
+  Vormonats. Vorrang: `--cutoff YYYY-MM-DD` / `--days N` > `--months N` >
+  Env `PRUNE_RETENTION_MONTHS` > Default 1.
+- **Umfang**: nur `session_message`-Zeilen (`DELETE … WHERE time_created <
+  cutoff` in einer Transaktion + `wal_checkpoint(TRUNCATE)`). `session_v2`
+  (Sessions) bleibt unberührt (Session-Pruning = V2).
+- **Dry-Run-Default**: ohne `--yes` wird nur gemeldet (Anzahl, Zeitraum,
+  `SUM(LENGTH(data))`-Größe, älteste verbleibende Message, Vorab-Preflight) —
+  nichts geschrieben, kein Backup, keine meta-Änderung.
+- **Preflight**: für `time_created < cutoff` müssen Quelle und stats.db
+  deckungsgleich sein (COUNT + Token-/Kosten-Summen, Filter exakt wie im
+  Extractor: `type='assistant'` UND `$.tokens` vorhanden). stats.db muss ≥
+  Quelle sein, sonst Abbruch ohne jede Änderung.
+- **Backup**: vor dem Löschen `VACUUM INTO` von einer read-only Connection nach
+  `~/.local/share/opencode/opencode-backup-YYYYMMDD.db` (rotierend: vorhandene
+  `opencode-backup-*.db` werden ersetzt). Fehlschlag ⇒ Abbruch, nichts gelöscht.
+- **VACUUM der Quelle** nur manuell (`pnpm prune-source --yes --vacuum` — OpenCode muss
+  dafür geschlossen sein); im Automatik-Pfad nie aktiv. Ohne VACUUM wird der
+  Platz erst beim Datei-Wachstum wiederverwendet (freie Pages bleiben in der DB).
+- **meta-Keys** (stats.db): `source_pruned_until` (Cutoff, epoch ms),
+  `source_pruned_at` (letzter Lauf), `source_pruned_count` (kumulativ
+  gelöschte Zeilen), `source_retention_months` (Retention zum Laufzeitpunkt).
+- **`--full`-Guard** (extract.ts): ist `source_pruned_until` gesetzt, verweigert
+  `sync({ full: true })` ohne `force`/`--force` — ein Full-Rebuild würde die
+  gelöschte History aus stats.db entfernen. Hinweis auf Backup-Dateien in der
+  Fehlermeldung; `--force` überschreibt bewusst. Inkrementelle Syncs sind nie
+  betroffen.
+- **Watch-Automatik**: nach jedem erfolgreichen Sync `maybePrune()` — COUNT=0-
+  Vorcheck auf der Quelle, bei >0 Prune mit `--yes`-Äquivalent; höchstens ein
+  erfolgreicher Lauf pro Tag, Fehler killen den Loop nie.

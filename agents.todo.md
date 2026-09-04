@@ -29,6 +29,33 @@
 
 ## Verifikations-Log
 
+### Runde 9 — Quell-DB-Retention (2026-09-04, Orchestrator)
+Feature „Quell-DB-Retention“ (Plan: ~/.opencode/plan/source-db-retention.md) von
+Build-Subagent (ses_f94d5e7d7ffeHTeFfIAK23vGqk) implementiert, von unabhängigem
+Verify-Subagent (ses_f94c3c97cffeaMSgp5GWtU5tDz) als **PASS** bestätigt → Todos
+entfernt:
+- **T1–T6 umgesetzt:** Env-Overrides `SOURCE_DB_PATH`/`STATS_DB_PATH`; Full-Guard
+  (`source_pruned_until` in meta, `--full` braucht danach `--force`);
+  `scripts/prune-source.ts` (Dry-Run-Default, Sync-Zwang, Preflight Quelle vs.
+  stats.db, rotierendes `VACUUM INTO`-Backup, DELETE + WAL-Checkpoint, VACUUM nur
+  manuell); Watch-Automatik `maybePrune()` (nur nach erfolgreichem Sync, nur bei
+  >0 Zeilen, Tages-Gate, Fehler killen den Loop nicht); Fixture-Tests
+  `pnpm test:prune` (8 Szenarien); CI-Workflow (typecheck+build+test:prune);
+  Doku in AGENTS.md + docs/stats-db-schema.md.
+- **Retention-Änderung (Nutzer):** konfigurierbar in KALENDERMONATEN, Default 1
+  ⇒ Cutoff = 1. des aktuellen Monats (Vorrang `--cutoff`/`--days` > `--months` >
+  Env `PRUNE_RETENTION_MONTHS` > 1). meta: zusätzlich `source_retention_months`.
+- **Script-Name:** `pnpm prune-source` (pnpm-eigenes `prune`-Kommando kollidiert).
+- **OOM-Fix (Orchestrator):** Full-Rebuild materialisierte alle Messages
+  (`.all()`; ~55-KB-`data`-JSONs ⇒ >4 GB Heap ⇒ OOM). Fix: `stmt.iterate()`
+  Streaming — Full-Rebuild jetzt 79.680 msgs / 9,6 s. Wichtig auch NACH dem
+  Prune (August allein = 71k Messages).
+- **Live-Verifiziert:** `pnpm sync --full` (heilt >=-Blindspot: 61 Messages, die
+  vor einem älteren last_sync geschrieben wurden) ⇒ Dry-Run gegen echte DB:
+  Preflight **ok** (Quelle 68.636 = stats.db 68.636), 78.178 Zeilen / ~4,34 GB
+  löschbar vor 2026-09-01 — nichts geschrieben.
+- Verifikation: tsc clean, build grün, test:prune 8/8, actionlint ok.
+
 ### Runde 8 — Stealth-Rotation Ox→Omen (2026-09-04, Orchestrator)
 Nutzer-Hinweis bestätigt: Ox Alpha war das anonyme Preview von GLM-5.3-Flash
 (Z.ai-Bestätigung 2026-08-26; Beleg u.a. opencode.ai/data: „GLM-5.3-Flash
