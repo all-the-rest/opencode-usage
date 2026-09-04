@@ -134,7 +134,7 @@ Diese Felder existieren im v2-Format nicht mehr (jetzt verschachtelt unter
 pnpm-Kommando und wird NICHT unser Script; Automatik in `pnpm watch`) löscht alte
 `session_message`-Zeilen aus der QUELL-DB, sobald stats.db sie vollständig
 übernommen hat. Invariante: stats.db ist eine Obermenge des Löschbereichs;
-die Reihenfolge ist immer sync → Preflight → Backup → löschen. Es ist die
+die Reihenfolge ist immer sync → Preflight → Delta-Archiv → löschen. Es ist die
 EINZIGE Stelle im Projekt, die je an die Quell-DB schreibt (für den DELETE mit
 Lese-Schreib-Zugriff; sonst überall strikt read-only).
 
@@ -149,23 +149,28 @@ Lese-Schreib-Zugriff; sonst überall strikt read-only).
   (Sessions) bleibt unberührt (Session-Pruning = V2).
 - **Dry-Run-Default**: ohne `--yes` wird nur gemeldet (Anzahl, Zeitraum,
   `SUM(LENGTH(data))`-Größe, älteste verbleibende Message, Vorab-Preflight) —
-  nichts geschrieben, kein Backup, keine meta-Änderung.
+  nichts geschrieben, kein Archiv, keine meta-Änderung.
 - **Preflight**: für `time_created < cutoff` müssen Quelle und stats.db
   deckungsgleich sein (COUNT + Token-/Kosten-Summen, Filter exakt wie im
   Extractor: `type='assistant'` UND `$.tokens` vorhanden). stats.db muss ≥
   Quelle sein, sonst Abbruch ohne jede Änderung.
-- **Backup**: vor dem Löschen `VACUUM INTO` von einer read-only Connection nach
-  `~/.local/share/opencode/opencode-backup-YYYYMMDD.db` (rotierend: vorhandene
-  `opencode-backup-*.db` werden ersetzt). Fehlschlag ⇒ Abbruch, nichts gelöscht.
+- **Delta-Archiv** (statt Vollkopie): in derselben Transaktion wie der DELETE
+  wandern nur die zu löschenden Zeilen (inkl. Roh-JSON) per `ATTACH` +
+  `INSERT INTO … SELECT` nach `~/.local/share/opencode/opencode-prune-archive-
+  YYYYMM.db` (YYYYMM = Cutoff-Monat; mehrere Monate dürfen kumulieren, da klein;
+  gleichnamiges Archiv wird beim Re-Lauf ersetzt). Fehlschlag ⇒ Abbruch, nichts
+  gelöscht. Bewusst KEINE Vollkopie mehr: die war 5,4 GB pro Lauf und fraß den
+  Platzgewinn wieder auf.
 - **VACUUM der Quelle** nur manuell (`pnpm prune-source --yes --vacuum` — OpenCode muss
   dafür geschlossen sein); im Automatik-Pfad nie aktiv. Ohne VACUUM wird der
   Platz erst beim Datei-Wachstum wiederverwendet (freie Pages bleiben in der DB).
 - **meta-Keys** (stats.db): `source_pruned_until` (Cutoff, epoch ms),
   `source_pruned_at` (letzter Lauf), `source_pruned_count` (kumulativ
-  gelöschte Zeilen), `source_retention_months` (Retention zum Laufzeitpunkt).
+  gelöschte Zeilen), `source_retention_months` (Retention zum Laufzeitpunkt),
+  `source_archive_path` (letztes Delta-Archiv).
 - **`--full`-Guard** (extract.ts): ist `source_pruned_until` gesetzt, verweigert
   `sync({ full: true })` ohne `force`/`--force` — ein Full-Rebuild würde die
-  gelöschte History aus stats.db entfernen. Hinweis auf Backup-Dateien in der
+  gelöschte History aus stats.db entfernen. Hinweis auf Archiv-Dateien in der
   Fehlermeldung; `--force` überschreibt bewusst. Inkrementelle Syncs sind nie
   betroffen.
 - **Watch-Automatik**: nach jedem erfolgreichen Sync `maybePrune()` — COUNT=0-

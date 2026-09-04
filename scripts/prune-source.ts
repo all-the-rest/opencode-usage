@@ -2,7 +2,7 @@
  * Quell-DB-Retention: löscht alte session_message-Zeilen aus der OpenCode-Quell-DB,
  * NACHDEM stats.db sie vollständig übernommen hat. Invariante: stats.db ist eine
  * Obermenge von allem, was aus der Quelle gelöscht wird — die Reihenfolge ist
- * immer sync → Preflight-Check → Backup → löschen.
+ * immer sync → Preflight-Check → Archiv → löschen.
  *
  * Retention: konfigurierbar in Kalendermonaten, Default 2. Cutoff = lokaler 1.
  * des Monats, (retentionMonths − 1) Monate zurück — Default also der 1. des
@@ -14,13 +14,13 @@
  * AUSNAHME (bewusst, die einzige im Projekt): für den DELETE wird die Quell-DB
  * mit Lese-Schreib-Zugriff geöffnet (`new Database(sourceDb, { fileMustExist:
  * true })`). Überall sonst gilt strikt read-only ({ readonly: true }, siehe
- * extract.ts / server/db.ts). Sync, Preflight und das VACUUM-INTO-Backup laufen
- * auf read-only Connections — VACUUM INTO schreibt ausschließlich die Zieldatei.
+ * extract.ts / server/db.ts). Sync und Preflight laufen auf read-only
+ * Connections; das Delta-Archiv schreibt ausschließlich die Archiv-Datei.
  *
  * CLI: pnpm prune-source [--yes] [--cutoff YYYY-MM-DD] [--days N] [--months N]
  *                       [--vacuum] [--force]
  * Ohne --yes läuft ein Dry-Run: es wird ausschließlich gemeldet, nichts
- * geschrieben, kein Backup, keine meta-Änderung. --vacuum macht nach dem
+ * geschrieben, kein Archiv, keine meta-Änderung. --vacuum macht nach dem
  * Löschen ein VACUUM der Quelle (OpenCode muss dafür geschlossen sein) — im
  * automatisierten Watch-Pfad nie aktiv. --force ist hier rein informativ
  * (zeigt den source_pruned_until-Stand; der zugehörige --full-Guard lebt in
@@ -114,9 +114,10 @@ function localDate(ms: number): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function yyyymmdd(ms: number): string {
+/** YYYYMM (lokal) — für Delta-Archiv-Namen je gelöschtem Monat. */
+function yyyymm(ms: number): string {
   const d = new Date(ms);
-  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}`;
 }
 
 function fmtBytes(n: number): string {
@@ -279,14 +280,63 @@ function compareSums(src: PruneSums, st: PruneSums): string[] {
 // write path (the one deliberate read-write exception)
 // ---------------------------------------------------------------------------
 /**
- * DELETE in EINER Transaktion + wal_checkpoint(TRUNCATE) danach. Öffnet die
- * Quell-DB mit Lese-Schreib-Zugriff — die eine bewusste Ausnahme (siehe
- * Header-Kommentar). busy_timeout >= 10s für parallele OpenCode-Zugriffe.
+ * Delta-Archiv + DELETE in EINER Transaktion (SQLite committet main + ATTACHed
+ * DB atomar) + wal_checkpoint(TRUNCATE) danach. Öffnet die Quell-DB mit
+ * Lese-Schreib-Zugriff — die eine bewusste Ausnahme (siehe Header-Kommentar).
+ * busy_timeout >= 10s für parallele OpenCode-Zugriffe.
+ *
+ * Archiv statt Vollkopie: nur die zu löschenden Zeilen (inkl. Roh-JSON) wandern
+ * per INSERT INTO … SELECT in ein kleines Archiv-DB — bei 70k+ Riesen-Zeilen
+ * memory-sicher (kein JavaScript-Row-Transfer) und das Platzbudget bleibt
+ * positiv (Vollkopie war 5,4 GB pro Lauf).
  */
-function deleteCandidates(sourceDb: string, cutoffMs: number): number {
+function deleteCandidates(
+  sourceDb: string,
+  cutoffMs: number,
+  archivePath: string | null,
+): number {
   const rw = new Database(sourceDb, { fileMustExist: true });
   try {
     rw.pragma('busy_timeout = 15000');
+    if (archivePath != null) {
+      // ATTACH vor der Transaktion (innerhalb einer ist ATTACH verboten).
+      // Die Archiv-Datei wurde vorher frisch angelegt/gelöscht.
+      rw.exec(`ATTACH DATABASE '${archivePath.replace(/'/g, "''")}' AS archive`);
+      try {
+        rw.exec(`CREATE TABLE archive.session_message (
+          id text PRIMARY KEY,
+          session_id text NOT NULL,
+          type text NOT NULL,
+          seq integer NOT NULL,
+          time_created integer NOT NULL,
+          time_updated integer NOT NULL,
+          data text NOT NULL
+        )`);
+        const run = rw.transaction(() => {
+          rw.prepare(
+            `INSERT INTO archive.session_message
+               (id, session_id, type, seq, time_created, time_updated, data)
+             SELECT id, session_id, type, seq, time_created, time_updated, data
+             FROM main.session_message WHERE time_created < ?`,
+          ).run(cutoffMs);
+          const info = rw
+            .prepare('DELETE FROM main.session_message WHERE time_created < ?')
+            .run(cutoffMs);
+          return Number(info.changes);
+        });
+        const deleted = run();
+        rw.pragma('wal_checkpoint(TRUNCATE)');
+        return deleted;
+      } finally {
+        try {
+          rw.exec('DETACH DATABASE archive');
+        } catch {
+          // Detach-Fehler darf den Erfolg nicht überschreiben (Transaktion ist
+          // längst committet); die Archiv-Datei ist geschlossen beim close().
+        }
+      }
+    }
+    // ohne Archiv: nur löschen
     const run = rw.transaction(() => {
       const info = rw.prepare('DELETE FROM session_message WHERE time_created < ?').run(cutoffMs);
       return Number(info.changes);
@@ -334,7 +384,7 @@ export interface PruneResult {
   oldestRemaining: number | null;
   /** Tatsächlich gelöscht (0 im Dry-Run bzw. wenn nichts zu tun war). */
   deleted: number;
-  backupPath: string | null;
+  archivePath: string | null;
   preflight: PrunePreflight | null;
   metaUpdated: boolean;
   vacuumed: boolean;
@@ -352,8 +402,8 @@ export interface PruneOptions {
   /** Pfade nur für Tests gegen Fixtures; Default: SOURCE_DB / ANALYSIS_DB. */
   sourceDb?: string;
   analysisDb?: string;
-  /** Backup-Ziel; Default: opencode-backup-YYYYMMDD.db neben der Quelle. */
-  backupPath?: string;
+  /** Delta-Archiv-Ziel; Default: opencode-prune-archive-YYYYMM.db (Cutoff-Monat) neben der Quelle. */
+  archivePath?: string;
   /** sync() vorher ausführen (Default true); watch setzt false (tick() hat schon synced). */
   syncFirst?: boolean;
 }
@@ -394,7 +444,7 @@ export function pruneSource(opts: PruneOptions = {}): PruneResult {
       bytes: cand.bytes,
       oldestRemaining: cand.oldest_remaining,
       deleted: 0,
-      backupPath: null,
+      archivePath: null,
       preflight: null,
       metaUpdated: false,
       vacuumed: false,
@@ -409,7 +459,7 @@ export function pruneSource(opts: PruneOptions = {}): PruneResult {
     }
 
     if (!yes) {
-      // Dry-Run: ausschließlich melden — kein Backup, keine meta-Änderung.
+      // Dry-Run: ausschließlich melden — kein Archiv, keine meta-Änderung.
       console.log(
         '[prune] DRY-RUN — es wird NICHTS geschrieben (zum Löschen mit --yes ausführen).',
       );
@@ -447,7 +497,7 @@ export function pruneSource(opts: PruneOptions = {}): PruneResult {
       return result;
     }
 
-    // --- yes-Pfad: preflight → backup → delete → meta (→ vacuum) ---
+    // --- yes-Pfad: preflight → Archiv → delete → meta (→ vacuum) ---
     const analysis = new Database(analysisDb, { fileMustExist: true });
     try {
       const src = readSourceSums(ro, cutoffMs);
@@ -463,32 +513,35 @@ export function pruneSource(opts: PruneOptions = {}): PruneResult {
         );
       }
 
-      // Backup via VACUUM INTO von einer READ-ONLY Connection (schreibt nur die
-      // Zieldatei). Rotation: vorhandene opencode-backup-*.db werden ersetzt.
-      const backupPath =
-        opts.backupPath ?? path.join(path.dirname(sourceDb), `opencode-backup-${yyyymmdd(now)}.db`);
-      const backupDir = path.dirname(backupPath);
-      fs.mkdirSync(backupDir, { recursive: true });
-      for (const entry of fs.readdirSync(backupDir)) {
-        if (/^opencode-backup-\d{8}\.db$/.test(entry) && entry !== path.basename(backupPath)) {
-          fs.rmSync(path.join(backupDir, entry), { force: true });
-        }
-      }
-      if (fs.existsSync(backupPath)) fs.rmSync(backupPath, { force: true });
-      console.log(`[prune] Backup: VACUUM INTO ${backupPath} …`);
+      // Delta-Archiv (statt Vollkopie): nur die zu löschenden Zeilen inkl.
+      // Roh-JSON, je gelöschtem Monat eine kleine Datei — mehrere Monate dürfen
+      // kumulieren. Gleichnamiges Archiv wird ersetzt (Re-Lauf).
+      const archivePath =
+        opts.archivePath ??
+        path.join(path.dirname(sourceDb), `opencode-prune-archive-${yyyymm(cutoffMs)}.db`);
+      const archiveDir = path.dirname(archivePath);
+      fs.mkdirSync(archiveDir, { recursive: true });
+      if (fs.existsSync(archivePath)) fs.rmSync(archivePath, { force: true });
+      console.log(
+        `[prune] Archiv: ${cand.n} Zeile(n) (~${fmtBytes(cand.bytes ?? 0)}) → ${archivePath} …`,
+      );
       try {
-        ro.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+        // Datei anlegen, damit ATTACH die leere DB nicht implizit erzeugt,
+        // falls der Pfad schon wieder weg ist (Race mit Rotation/Cleanup).
+        if (!fs.existsSync(archivePath)) fs.writeFileSync(archivePath, '');
       } catch (e) {
         throw new Error(
-          `[prune] Backup fehlgeschlagen (${e instanceof Error ? e.message : String(e)}) — ` +
+          `[prune] Archiv-Datei nicht anlegbar (${e instanceof Error ? e.message : String(e)}) — ` +
             'ABBRUCH, es wurde NICHTS gelöscht.',
         );
       }
-      console.log(`[prune] Backup ok: ${backupPath} (${fmtBytes(fs.statSync(backupPath).size)})`);
-      result.backupPath = backupPath;
 
-      const deleted = deleteCandidates(sourceDb, cutoffMs);
+      const deleted = deleteCandidates(sourceDb, cutoffMs, archivePath);
       result.deleted = deleted;
+      result.archivePath = archivePath;
+      console.log(
+        `[prune] Archiv ok: ${archivePath} (${fmtBytes(fs.statSync(archivePath).size)})`,
+      );
       console.log(`[prune] gelöscht: ${deleted} session_message-Zeilen vor ${localDate(cutoffMs)}.`);
 
       // Buchhaltung in stats.db meta. source_pruned_count ist KUMULATIV über
@@ -505,6 +558,7 @@ export function pruneSource(opts: PruneOptions = {}): PruneResult {
           String((Number.isFinite(prevCount) ? prevCount : 0) + deleted),
         );
         setMeta(analysis, 'source_retention_months', String(retentionMonths));
+        setMeta(analysis, 'source_archive_path', archivePath);
       })();
       result.metaUpdated = true;
 
@@ -543,7 +597,7 @@ function usage(): string {
 
 Quell-DB-Retention: löscht session_message-Zeilen, die älter als der Cutoff
 sind, wenn stats.db sie vollständig übernommen hat
-(sync → preflight → backup → löschen). Sessions (session_v2) bleiben vorerst
+(sync → preflight → Archiv → löschen). Sessions (session_v2) bleiben vorerst
 unberührt.
 
   --yes                wirklich löschen (ohne --yes: Dry-Run, nur melden)
@@ -650,7 +704,7 @@ function main(argv: string[]): void {
   if (res.dryRun) {
     console.log('[prune] Dry-Run beendet — nichts geändert.');
   } else if (res.deleted > 0) {
-    console.log(`[prune] fertig: ${res.deleted} Zeile(n) gelöscht, Backup: ${res.backupPath ?? 'keins'}.`);
+    console.log(`[prune] fertig: ${res.deleted} Zeile(n) gelöscht, Archiv: ${res.archivePath ?? 'keins'}.`);
   } else {
     console.log('[prune] fertig: nichts zu löschen.');
   }

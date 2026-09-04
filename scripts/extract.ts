@@ -257,7 +257,7 @@ export function sync(
       // über alle types wäre ohnehin nur ein grober Proxy — der Extractor zählt
       // nur type='assistant'). Die Faustregel ist deshalb konservativ: JEDEr
       // Full-Rebuild nach einem Prune braucht --force (z. B. nach Restore aus
-      // einem Backup). Inkrementelle Syncs sind nie betroffen.
+      // einem Archiv). Inkrementelle Syncs sind nie betroffen.
       const prunedUntilRaw = metaValue(analysis, 'source_pruned_until');
       if (prunedUntilRaw != null) {
         const ms = Number(prunedUntilRaw);
@@ -266,9 +266,9 @@ export function sync(
           throw new Error(
             `[extract] FULL-Rebuild verweigert: Die Quelle wurde bis ${when} gekürzt ` +
               '(stats.db meta.source_pruned_until). Ein Full-Rebuild würde diese History ' +
-              'endgültig aus stats.db entfernen. Quelle aus einem Backup (opencode-backup-*.db) ' +
-              'wiederherstellen und erneut laufen lassen — oder bewusst mit --force bzw. ' +
-              'sync({ force: true }) erzwingen.',
+              'endgültig aus stats.db entfernen. Quelle aus einem Delta-Archiv ' +
+              '(opencode-prune-archive-*.db) wiederherstellen und erneut laufen ' +
+              'lassen — oder bewusst mit --force bzw. sync({ force: true }) erzwingen.',
           );
         }
         console.warn(

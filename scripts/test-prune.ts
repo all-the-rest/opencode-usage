@@ -11,10 +11,10 @@
  *  1. Determinismus      — Full-Sync → Snapshot → Prune → inkrementeller Sync ⇒ identisch
  *  2. Monats-Simulation  — alte Monate weg aus der Quelle, vollständig in stats.db
  *  3. Live-Verkehr       — neue Message nach dem Prune, Aggregates ALT+NEU korrekt
- *  4. Idempotenz         — 2. Prune-Lauf löscht 0 und macht kein neues Backup
+ *  4. Idempotenz         — 2. Prune-Lauf löscht 0 und macht kein neues Archiv
  *  5. Full-Guard         — sync({full}) verweigert ohne --force, läuft mit --force
  *  6. Preflight-Mismatch — manipulierte stats.db ⇒ Abbruch, Quelle unangetastet
- *  7. Dry-Run            — Default (ohne --yes) ändert NICHTS (kein Backup, keine meta-Writes)
+ *  7. Dry-Run            — Default (ohne --yes) ändert NICHTS (kein Archiv, keine meta-Writes)
  *  8. Retention 1 vs 2   — konfigurierbare Kalendermonate (Default 2; 1 = enger per --months)
  *
  * pnpm test:prune
@@ -67,7 +67,7 @@ interface Fixture {
   root: string;
   sourceDb: string;
   statsDb: string;
-  backupPath: string;
+  archivePath: string;
   /** Cutoff = 1. des AKTUELLEN Monats (Retention 1). */
   cutoff: number;
   tOld: number; // < cutoff → wird gelöscht
@@ -188,7 +188,7 @@ function makeStandardFixture(tag: string): Fixture {
     root,
     sourceDb,
     statsDb: path.join(root, 'stats.db'),
-    backupPath: path.join(root, 'opencode-backup-test.db'),
+    archivePath: path.join(root, 'opencode-archive-test.db'),
     cutoff,
     tOld,
     tMid,
@@ -279,12 +279,23 @@ function scenarioDeterminism(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
   assertEqual(pr.deleted, 3, 'Prune löscht 3 Zeilen (m1, m1-user, m4)');
   assert(pr.preflight != null && pr.preflight.ok, 'Preflight ok');
-  assertEqual(pr.backupPath, f.backupPath, 'Backup-Pfad gesetzt');
-  assert(fs.existsSync(f.backupPath), 'Backup-Datei existiert');
+  assertEqual(pr.archivePath, f.archivePath, 'Archiv-Pfad gesetzt');
+  assert(fs.existsSync(f.archivePath), 'Archiv-Datei existiert');
+  // Archiv-Inhalt = exakt die gelöschten Zeilen (inkl. Roh-JSON-Größe).
+  const ar = new Database(f.archivePath, { fileMustExist: true, readonly: true });
+  try {
+    const arow = ar
+      .prepare('SELECT COUNT(*) AS n, SUM(LENGTH(data)) AS bytes FROM session_message')
+      .get() as { n: number; bytes: number | null };
+    assertEqual(arow.n, pr.deleted, 'Archiv enthält genau die gelöschten Zeilen');
+    assertEqual(arow.bytes ?? 0, pr.bytes ?? -1, 'Archiv-Data-Bytes = gemeldete Lösch-Bytes');
+  } finally {
+    ar.close();
+  }
   assert((pr.bytes ?? 0) > 0, 'geschätzte Größe > 0');
   assertEqual(pr.oldestRemaining, f.tMid, 'älteste verbleibende Message = tMid');
 
@@ -307,7 +318,7 @@ function scenarioMonthSimulation(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
 
   // Quelle: alles vor dem Cutoff ist weg (inkl. user-Message), Sessions bleiben.
@@ -352,7 +363,7 @@ function scenarioLiveTraffic(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
   assertEqual(countMessages(f.statsDb), 5, 'stats.db hat die 5 Fixture-Messages');
 
@@ -430,11 +441,11 @@ function scenarioIdempotency(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
   assertEqual(pr1.deleted, 3, 'erster Lauf löscht 3');
-  assert(fs.existsSync(f.backupPath), 'Backup existiert nach erstem Lauf');
-  const stat1 = fs.statSync(f.backupPath);
+  assert(fs.existsSync(f.archivePath), 'Archiv existiert nach erstem Lauf');
+  const stat1 = fs.statSync(f.archivePath);
   const meta1 = JSON.stringify(readMetaMap(f.statsDb));
 
   const pr2 = pruneSource({
@@ -442,13 +453,13 @@ function scenarioIdempotency(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
   assertEqual(pr2.deleted, 0, 'zweiter Lauf löscht 0');
   assertEqual(pr2.candidates, 0, 'zweiter Lauf findet 0 Kandidaten');
-  assertEqual(pr2.backupPath, null, 'zweiter Lauf macht kein Backup');
-  const stat2 = fs.statSync(f.backupPath);
-  assertEqual(stat2.mtimeMs, stat1.mtimeMs, 'Backup-Datei unangetastet (kein neues Backup)');
+  assertEqual(pr2.archivePath, null, 'zweiter Lauf macht kein Archiv');
+  const stat2 = fs.statSync(f.archivePath);
+  assertEqual(stat2.mtimeMs, stat1.mtimeMs, 'Archiv-Datei unangetastet (kein neues Archiv)');
   assertEqual(JSON.stringify(readMetaMap(f.statsDb)), meta1, 'meta unangetastet');
 }
 
@@ -460,7 +471,7 @@ function scenarioFullGuard(): void {
     cutoffMs: f.cutoff,
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
 
   let err: unknown;
@@ -503,7 +514,7 @@ function scenarioPreflightMismatch(): void {
       cutoffMs: f.cutoff,
       sourceDb: f.sourceDb,
       analysisDb: f.statsDb,
-      backupPath: f.backupPath,
+      archivePath: f.archivePath,
     });
   } catch (e) {
     threw = true;
@@ -517,7 +528,7 @@ function scenarioPreflightMismatch(): void {
     3,
     'Quelle unangetastet (m1, m1-user, m4 noch da)',
   );
-  assert(!fs.existsSync(f.backupPath), 'kein Backup erstellt');
+  assert(!fs.existsSync(f.archivePath), 'kein Archiv erstellt');
 }
 
 function scenarioDryRun(): void {
@@ -528,13 +539,13 @@ function scenarioDryRun(): void {
     cutoffMs: f.cutoff, // absichtlich OHNE yes → Dry-Run
     sourceDb: f.sourceDb,
     analysisDb: f.statsDb,
-    backupPath: f.backupPath,
+    archivePath: f.archivePath,
   });
   assertEqual(pr.dryRun, true, 'Dry-Run flag gesetzt');
   assertEqual(pr.candidates, 3, 'Dry-Run meldet 3 Kandidaten');
   assertEqual(pr.deleted, 0, 'Dry-Run löscht nichts');
-  assertEqual(pr.backupPath, null, 'Dry-Run macht kein Backup');
-  assert(!fs.existsSync(f.backupPath), 'keine Backup-Datei');
+  assertEqual(pr.archivePath, null, 'Dry-Run macht kein Archiv');
+  assert(!fs.existsSync(f.archivePath), 'keine Archiv-Datei');
   assertEqual(
     withRo(f.sourceDb, (db) => countRows(db, 'SELECT COUNT(*) AS n FROM session_message WHERE time_created < ?', f.cutoff)),
     3,
@@ -599,7 +610,7 @@ function scenarioRetentionMonths(): void {
       return {
         sourceDb,
         statsDb: path.join(root, 'stats.db'),
-        backupPath: path.join(root, 'opencode-backup-test.db'),
+        archivePath: path.join(root, 'opencode-archive-test.db'),
         cutoff1,
         cutoff2,
         tOld,
@@ -617,7 +628,7 @@ function scenarioRetentionMonths(): void {
       retentionMonths: 1,
       sourceDb: f1.sourceDb,
       analysisDb: f1.statsDb,
-      backupPath: f1.backupPath,
+      archivePath: f1.archivePath,
     });
     assertEqual(r1.deleted, 2, 'retention 1: Vormonat + älter werden gelöscht');
     assertEqual(r1.cutoffMs, f1.cutoff1, 'retention 1: Cutoff = 1. des aktuellen Monats');
@@ -638,7 +649,7 @@ function scenarioRetentionMonths(): void {
       retentionMonths: 2,
       sourceDb: f2.sourceDb,
       analysisDb: f2.statsDb,
-      backupPath: f2.backupPath,
+      archivePath: f2.archivePath,
     });
     assertEqual(r2.deleted, 1, 'retention 2: nur älter als Vormonatsbeginn wird gelöscht');
     assertEqual(r2.cutoffMs, f2.cutoff2, 'retention 2: Cutoff = 1. des Vormonats');
@@ -672,7 +683,7 @@ const scenarios: Array<[string, () => void]> = [
   ['1 Determinismus (Prune unsichtbar für Aggregate)', scenarioDeterminism],
   ['2 Monats-Simulation (Quelle gekürzt, stats.db vollständig)', scenarioMonthSimulation],
   ['3 Live-Verkehr nach Prune (ALT+NEU korrekt)', scenarioLiveTraffic],
-  ['4 Idempotenz (2. Lauf löscht 0, kein neues Backup)', scenarioIdempotency],
+  ['4 Idempotenz (2. Lauf löscht 0, kein neues Archiv)', scenarioIdempotency],
   ['5 Full-Guard (verweigert ohne --force, läuft mit)', scenarioFullGuard],
   ['6 Preflight-Mismatch (Abbruch, Quelle unangetastet)', scenarioPreflightMismatch],
   ['7 Dry-Run-Default (nichts geschrieben)', scenarioDryRun],

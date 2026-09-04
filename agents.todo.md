@@ -58,6 +58,14 @@ entfernt:
   Preflight **ok** (Quelle 68.636 = stats.db 68.636), 78.178 Zeilen / ~4,34 GB
   löschbar vor 2026-09-01 — nichts geschrieben.
 - Verifikation: tsc clean, build grün, test:prune 8/8, actionlint ok.
+- **Nachtrag Delta-Archiv (Nutzer-Entscheid):** Vollkopie-Backup (VACUUM INTO,
+  5,4 GB pro Lauf) fraß den Platzgewinn → ersetzt durch Delta-Archiv:
+  `opencode-prune-archive-YYYYMM.db` je Cutoff-Monat, nur die gelöschten Zeilen
+  inkl. Roh-JSON, per ATTACH + INSERT INTO … SELECT in derselben Transaktion wie
+  der DELETE (atomar). meta: `source_archive_path`. Alte 5,36-GB-Backup-Datei
+  gelöscht (Juli-Roh-JSONs damit unwiederbringlich weg — Absicht, stats.db hat
+  alle Fakten). Test-Assertions: Archiv-Inhalt = exakt die gelöschten Zeilen
+  (COUNT + Data-Bytes).
 
 ### Runde 8 — Stealth-Rotation Ox→Omen (2026-09-04, Orchestrator)
 Nutzer-Hinweis bestätigt: Ox Alpha war das anonyme Preview von GLM-5.3-Flash

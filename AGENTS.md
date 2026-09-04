@@ -13,8 +13,9 @@ Script; Automatik in `pnpm watch`): Retention in KALENDERMONATEN,
 konfigurierbar, Default 2 ⇒ Cutoff = 1. des Vormonats (Vorrang
 `--cutoff YYYY-MM-DD`/`--days N` > `--months N` > Env `PRUNE_RETENTION_MONTHS`
 > 2). Löscht nur `session_message`-Zeilen (Sessions bleiben vorerst), NUR nach
-sync → Preflight-Check → Backup (`VACUUM INTO` →
-`~/.local/share/opencode/opencode-backup-YYYYMMDD.db`, rotierend). `--full`
+sync → Preflight-Check → Delta-Archiv (nur die gelöschten Zeilen inkl. Roh-JSON →
+`~/.local/share/opencode/opencode-prune-archive-YYYYMM.db`, je Cutoff-Monat, klein).
+KEINE Vollkopie mehr (war 5,4 GB pro Lauf). `--full`
 nach einem Prune braucht `--force` (Guard in extract.ts). Details:
 docs/stats-db-schema.md.
 

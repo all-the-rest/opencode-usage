@@ -58,7 +58,7 @@ function tick(): void {
 // --- Quell-DB-Retention (maybePrune) ----------------------------------------
 // Gate: höchstens ein ERFOLGREICHER Prune pro Tag (Datum-Compare in dieser
 // Modul-Variable). Der COUNT=0-Vorcheck auf der Quelle (read-only, Index auf
-// time_created) macht tägliche Läufe billig: bei 0 gibt es kein Backup und
+// time_created) macht tägliche Läufe billig: bei 0 gibt es kein Archiv und
 // keine meta-Writes, der Tag gilt als erledigt. Bei einem Fehler wird der Tag
 // NICHT markiert → nächster Versuch beim nächsten Sync; der Watch-Loop endet
 // nie an einem Prune-Fehler.
@@ -83,7 +83,7 @@ function maybePrune(): void {
     if (res.deleted > 0) {
       console.log(
         `[watch] prune: ${res.deleted} message(s) vor ${localDay(res.cutoffMs)} gelöscht ` +
-          `(retention ${retentionMonths} Monat(e), backup: ${res.backupPath ?? 'keins'})`,
+          `(retention ${retentionMonths} Monat(e), Archiv: ${res.archivePath ?? 'keins'})`,
       );
     } else {
       console.log('[watch] prune: nichts gelöscht (Kandidaten zwischenzeitlich verschwunden)');
