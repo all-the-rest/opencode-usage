@@ -7,9 +7,15 @@
  * die model_id, ohne Provider-Pfad).
  *
  * Stealth-Modelle sind "standalone": ihr Anzeigename ist eigenständig
- * (z.B. x-preview-f-free → „Ox Alpha Free“), sie teilen sich EINEN Hersteller
- * (STEALTH_MANUFACTURER) und bekommen genau diesen auch als Family — die
- * Heuristik (familyKey/resolveModelMeta) liefert für sie keinen eigenen Slug.
+ * (z.B. omen-alpha → Katalogname ohne Klammer-Zusatz), sie teilen sich EINEN
+ * Hersteller (STEALTH_MANUFACTURER) und bekommen genau diesen auch als
+ * Family — die Heuristik (familyKey/resolveModelMeta) liefert für sie keinen
+ * eigenen Slug.
+ *
+ * Ex-Stealth-Modelle mit gelüfteter Identität (z.B. ox-alpha = GLM-5.3-Flash,
+ * Z.ai) stehen NICHT mehr hier unter STEALTH, sondern mit ihrem echten
+ * Hersteller in MANUAL_RULES und mit ihrer echten Family in
+ * MANUAL_FAMILY_RULES weiter unten.
  *
  * Bevor ein neues Stealth-Modell auftaucht: einfach eine Zeile ergänzen,
  * z.B.  ["trinity-large", STEALTH_MANUFACTURER]
@@ -20,10 +26,15 @@ export const STEALTH_MANUFACTURER = "OpenCode Stealth";
 
 const MANUAL_RULES: Array<[pattern: string, manufacturer: string]> = [
   ["big-pickle", STEALTH_MANUFACTURER], // Stealth-Modell, Lab unbekannt
-  // Ox Alpha Free — dasselbe Stealth-Modell unter zwei Provider-IDs:
+  // Ox Alpha Free — EX-Stealth: am 2026-08-26 von Z.ai als GLM-5.3-Flash
+  // bestätigt. Dasselbe Modell unter zwei Provider-IDs:
   // opencode = x-preview-f-free, opencode-go = ox-alpha-free.
-  ["x-preview-f", STEALTH_MANUFACTURER],
-  ["ox-alpha", STEALTH_MANUFACTURER],
+  // Enthält kein „glm“, braucht daher explizite Regeln (statt der
+  // glm-Heuristik in manufacturers.ts).
+  ["x-preview-f", "Zhipu AI"],
+  ["ox-alpha", "Zhipu AI"],
+  // Omen Alpha — neues Stealth-Modell (opencode-go/omen-alpha), Lab unbekannt.
+  ["omen-alpha", STEALTH_MANUFACTURER],
 ];
 
 export default MANUAL_RULES;
@@ -50,4 +61,10 @@ export const MANUAL_FAMILY_RULES: Array<[pattern: string, family: string]> = [
   // Alle Gemma-Varianten (QAT-Größen, -IT, lokal wie remote) sind EINE
   // Family „gemma“ — der Katalog splittet „gemma-it-qat“/„gemma-qat“.
   ["gemma", "gemma"],
+  // Ox Alpha (ex-Stealth = GLM-5.3-Flash) in denselben Family-Bucket wie die
+  // enthüllte ID glm-5.3-flash (Heuristik: „glm-flash“) — sonst fiele
+  // ox-alpha-free via Katalog-Fallback auf „alpha“ (stealth/ox-alpha-Einträge
+  // fremder Provider) bzw. auf die Heuristik „ox-alpha“.
+  ["ox-alpha", "glm-flash"],
+  ["x-preview-f", "glm-flash"],
 ];

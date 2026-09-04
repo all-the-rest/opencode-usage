@@ -29,6 +29,30 @@
 
 ## Verifikations-Log
 
+### Runde 8 — Stealth-Rotation Ox→Omen (2026-09-04, Orchestrator)
+Nutzer-Hinweis bestätigt: Ox Alpha war das anonyme Preview von GLM-5.3-Flash
+(Z.ai-Bestätigung 2026-08-26; Beleg u.a. opencode.ai/data: „GLM-5.3-Flash
+(formerly ox-alpha)“). Eigene Daten stützen das: `ox-alpha-free` (14.191 Msgs,
+21.–26.08., Kosten 0) endet exakt zum Reveal, `glm-5.3-flash` (132 Msgs,
+28.–31.08., Kosten > 0) beginnt danach.
+- `src/lib/manual-manufacturers.ts`: `x-preview-f`/`ox-alpha` von
+  STEALTH_MANUFACTURER auf „Zhipu AI“ umgestellt (explizite Regeln nötig —
+  IDs enthalten kein „glm“); Family-Overrides `ox-alpha`/`x-preview-f` →
+  `glm-flash` (derselbe Bucket wie die enthüllte ID `glm-5.3-flash`, die per
+  Heuristik auf `glm-flash` fällt — ohne Override drohte Katalog-Fallback
+  „alpha“); neu `["omen-alpha", STEALTH_MANUFACTURER]` (opencode-go, 17 Msgs
+  am 04.09.). `big-pickle` unverändert Stealth.
+- Quelle-DB NICHT umbenannt: `~/.local/share/opencode/opencode.db` ist strikt
+  read-only (AGENTS.md/extract.ts) und gehört OpenCode — Attribution erfolgt
+  in unserer Schicht zur Abfragezeit; Roh-IDs bleiben erhalten, kein Re-Sync
+  nötig (daily_agg speichert nur rohe model_ids).
+- Verifikation: `tsc --noEmit` clean, `pnpm build` grün, 6/6
+  Runtime-Assertions PASS (ox-alpha-free + x-preview-f-free → Zhipu AI /
+  glm-flash; glm-5.3-flash → glm-flash; glm-5.3 → glm; omen-alpha + big-pickle
+  → OpenCode Stealth). Anzeigename bleibt historisch „Ox Alpha Free“.
+
+## Verifikations-Log
+
 ### Runde 7 — Token-Total-Definition vereinheitlicht (2026-08-21)
 **Menschliche Entscheidung (Nutzer):**
 - Token-Totale enthält IMMER Cache Read — KPI „Gesamt-Tokens" muss exakt dem
