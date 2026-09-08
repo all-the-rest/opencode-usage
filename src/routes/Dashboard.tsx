@@ -66,6 +66,14 @@ const TOKEN_FIELDS = [
 ] as const;
 
 /**
+ * Key of the invisible click-catcher segment stacked on every column (see
+ * CatcherBar in the trend/share charts). Rows carry it as 0; it is never a
+ * series, never in the legend (legendType="none") and filtered out of
+ * tooltips.
+ */
+const CATCHER_KEY = "__click";
+
+/**
  * X-Achsen-/Label-Formatierung passend zur Auflösung — von allen
  * Dashboard-Zeitverlauf-Charts gemeinsam genutzt (Token-Trend, Kosten-
  * verlauf, Token-Anteile): „Gesamt" → Pseudo-Bucket-Label, Tag → Kurzdatum,
@@ -523,7 +531,7 @@ function buildTokenRows(
   if (groupBy === "total") {
     const byDay = new Map<string, Row>();
     for (const p of points) {
-      const row = byDay.get(p.day) ?? { day: p.day };
+      const row = byDay.get(p.day) ?? { day: p.day, [CATCHER_KEY]: 0 };
       for (const f of TOKEN_FIELDS) {
         row[f.key] = ((row[f.key] as number) ?? 0) + (p[f.field] as number);
       }
@@ -548,7 +556,7 @@ function buildTokenRows(
 
   const byDay = new Map<string, Row>();
   for (const p of points) {
-    const row = byDay.get(p.day) ?? { day: p.day };
+    const row = byDay.get(p.day) ?? { day: p.day, [CATCHER_KEY]: 0 };
     const bucket = topSet.has(p.key) ? p.key : "Other";
     const total =
       p.inputTokens + p.outputTokens + p.reasoningTokens + p.cacheReadTokens;
@@ -604,13 +612,20 @@ function TokenTrendChart({
           const grouped = groupBy !== "total";
           return (
             <ResponsiveContainer width="100%" height="100%">
-              {/* Clicking a bar drills down into that day. For week/month
-                  granularity the payload's `day` is the period's first day,
-                  which is exactly the drill-down target we want. */}
+              {/* Column click (chart-level) drills down into that day. For
+                  week/month granularity the payload's `day` is the period's
+                  first day, which is exactly the drill-down target. NOTE:
+                  chart-level onClick is intentionally NOT used — Recharts 3
+                  resets the active index to 0 on chart click
+                  (mouseEventsMiddleware: "there's a bug here when you click
+                  the chart the activeIndex resets to zero"), so it would
+                  always resolve to the first day. Instead every column gets
+                  a full-height transparent catcher (see CatcherBar below)
+                  and item-level onClick handlers. */}
               <BarChart
                 data={rows}
                 margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
-                className="cursor-pointer"
+                className={canDrillDown ? "cursor-pointer" : undefined}
               >
               <CartesianGrid strokeDasharray="3 3" className="stroke-base-300" />
               <XAxis
@@ -645,13 +660,21 @@ function TokenTrendChart({
                   name={s.label}
                   stackId="tokens"
                   fill={paletteColor(grouped ? series.length - 1 - i : i)}
-                  onClick={(data: any) => {
-                    if (!canDrillDown) return;
-                    const d: unknown = data?.payload?.day;
-                    if (typeof d === "string") onSelectDay(d);
-                  }}
+                  onClick={barClickDay(canDrillDown, onSelectDay)}
                 />
               ))}
+              {canDrillDown && (
+                <Bar
+                  key={CATCHER_KEY}
+                  dataKey={CATCHER_KEY}
+                  stackId="tokens"
+                  fill="transparent"
+                  background={{ fill: "transparent" }}
+                  minPointSize={1}
+                  legendType="none"
+                  onClick={barClickDay(canDrillDown, onSelectDay)}
+                />
+              )}
               </BarChart>
             </ResponsiveContainer>
           );
@@ -660,6 +683,27 @@ function TokenTrendChart({
     </ChartCard>
   );
 }
+
+/** Item-level click handler: drill into the clicked bucket day. */
+function barClickDay(
+  canDrillDown: boolean,
+  onSelectDay: (day: string) => void,
+) {
+  return (data: any) => {
+    if (!canDrillDown) return;
+    const d: unknown = data?.payload?.day;
+    if (typeof d === "string") onSelectDay(d);
+  };
+}
+
+/**
+ * Invisible full-column click catcher. Renders a 1px transparent segment
+ * (minPointSize keeps zero columns in the DOM) plus a full-height
+ * transparent background per column, so the WHOLE column — bar, empty
+ * space above short bars, or zero-usage placeholder — is clickable, not
+ * just the painted bar segment. Rendered last (transparent, on top of the
+ * stack) with the same stackId; excluded from legend and tooltip.
+ */
 
 /**
  * Legend content that renders series in REVERSE render order (i.e. largest
@@ -691,13 +735,16 @@ function TokenTrendTooltip({
   sortDesc,
 }: any) {
   if (!active || !payload?.length) return null;
-  const total = payload.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0);
+  // Click-catcher segments (__click) carry no data — hide them.
+  const visible = payload.filter((e: any) => e.dataKey !== CATCHER_KEY);
+  if (visible.length === 0) return null;
+  const total = visible.reduce((s: number, e: any) => s + (Number(e.value) || 0), 0);
   // Gruppierte Ansicht: größter Wert zuerst (passt zur Legende/Stapel-Ordnung).
   const items = sortDesc
-    ? [...payload].sort(
+    ? [...visible].sort(
         (a: any, b: any) => (Number(b.value) || 0) - (Number(a.value) || 0),
       )
-    : payload;
+    : visible;
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
       <div className="mb-1 font-medium">{fmtLabel ? fmtLabel(label) : label}</div>
@@ -824,7 +871,7 @@ function TokenShareChart({
     const pts = foldReasoningIntoOutput(api.data?.points ?? []);
     const byDay = new Map<string, ShareRow>();
     for (const p of pts) {
-      const row = byDay.get(p.day) ?? { day: p.day };
+      const row = byDay.get(p.day) ?? { day: p.day, [CATCHER_KEY]: 0 };
       for (const c of SHARE_CATS) {
         row[c.key] = ((row[c.key] as number) ?? 0) + (p[c.field] as number);
       }
@@ -832,13 +879,15 @@ function TokenShareChart({
     }
     const out: ShareRow[] = [];
     for (const row of byDay.values()) {
-      const sum =
-        SHARE_CATS.reduce((s, c) => s + (row[c.key] as number), 0) || 1;
-      const r: ShareRow = { day: String(row.day), total: sum };
+      const total = SHARE_CATS.reduce((s, c) => s + (row[c.key] as number), 0);
+      // Divisor guard only for the percentage math — `total` itself stays 0
+      // so zero-usage days (now filled by the API) tooltip as 0, not 1.
+      const div = total || 1;
+      const r: ShareRow = { day: String(row.day), total };
       for (const c of SHARE_CATS) {
         const abs = row[c.key] as number;
         r[c.key] = abs;
-        r[`${c.key}Pct`] = (abs / sum) * 100;
+        r[`${c.key}Pct`] = (abs / div) * 100;
       }
       out.push(r);
     }
@@ -859,7 +908,7 @@ function TokenShareChart({
               <BarChart
                 data={rows}
                 margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
-                className="cursor-pointer"
+                className={canDrillDown ? "cursor-pointer" : undefined}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -888,13 +937,21 @@ function TokenShareChart({
                     fill={c.color}
                     stroke={c.color}
                     fillOpacity={0.7}
-                    onClick={(data: any) => {
-                      if (!canDrillDown) return;
-                      const d: unknown = data?.payload?.day;
-                      if (typeof d === "string") onSelectDay(d);
-                    }}
+                    onClick={barClickDay(canDrillDown, onSelectDay)}
                   />
                 ))}
+                {canDrillDown && (
+                  <Bar
+                    key={CATCHER_KEY}
+                    dataKey={CATCHER_KEY}
+                    stackId="1"
+                    fill="transparent"
+                    background={{ fill: "transparent" }}
+                    minPointSize={1}
+                    legendType="none"
+                    onClick={barClickDay(canDrillDown, onSelectDay)}
+                  />
+                )}
               </BarChart>
             </ResponsiveContainer>
           );

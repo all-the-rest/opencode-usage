@@ -314,10 +314,157 @@ app.get("/api/stats/timeseries", (c) =>
     const points = Array.from(acc.values()).sort((a, b) =>
       a.day === b.day ? a.key.localeCompare(b.key) : a.day.localeCompare(b.day),
     );
-    const response: TimeseriesResponse = { points };
+    const filled = fillMissingBuckets(points, granularity, groupBy, hasRange ? { from: r.from!, to: r.to! } : null);
+    const response: TimeseriesResponse = { points: filled };
     return c.json(response);
   }),
 );
+
+/**
+ * Fill gaps in the timeseries so days/weeks/months with zero usage still
+ * appear as zero buckets instead of being excluded from the diagram.
+ * - With an explicit from/to range: every bucket covering [from, to] exists.
+ * - Without a range: every bucket from the first to the last observed bucket
+ *   exists (no trailing extension to today — a long-inactive history would
+ *   otherwise render as a wall of empty bars).
+ * - granularity "all" is a single pseudo-bucket: nothing to fill.
+ * Missing buckets get one zero point. For groupBy="total" its key is "total";
+ * for grouped queries the placeholder reuses an observed key with all-zero
+ * values so the frontend's per-day row aggregation still creates the row
+ * without affecting the top-8 ranking (adding 0 changes nothing).
+ */
+function fillMissingBuckets(
+  points: TimeseriesPoint[],
+  granularity: Granularity,
+  groupBy: GroupBy,
+  range: { from: string; to: string } | null,
+): TimeseriesPoint[] {
+  if (granularity === "all") return points;
+  const expected: string[] =
+    range != null
+      ? expectedBucketsForRange(range.from, range.to, granularity)
+      : expectedBucketsBetween(points, granularity);
+  if (expected.length === 0) return points;
+  const present = new Set(points.map((p) => p.day));
+  const missing = expected.filter((d) => !present.has(d));
+  if (missing.length === 0) return points;
+  if (points.length === 0) {
+    // No observed keys (e.g. a scoped range with zero usage at all).
+    // Only groupBy="total" has a well-defined zero key; grouped queries
+    // keep the empty result so the UI shows its empty state instead of a
+    // bogus single series.
+    if (groupBy !== "total") return points;
+    const zeros = missing.map((day) => zeroPoint(day, "total"));
+    return [...points, ...zeros].sort((a, b) =>
+      a.day === b.day ? a.key.localeCompare(b.key) : a.day.localeCompare(b.day),
+    );
+  }
+  const fallbackKey = points[0]?.key ?? "total";
+  const zeros = missing.map((day) => zeroPoint(day, fallbackKey));
+  return [...points, ...zeros].sort((a, b) =>
+    a.day === b.day ? a.key.localeCompare(b.key) : a.day.localeCompare(b.day),
+  );
+}
+
+function zeroPoint(day: string, key: string): TimeseriesPoint {
+  return {
+    day,
+    key,
+    msgCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    cost: 0,
+  };
+}
+
+function toLocalDate(day: string): Date {
+  return new Date(`${day}T00:00:00`);
+}
+
+function fromLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+/** Buckets covering [from, to] (daily walk, deduped — correct for day/week/month). */
+function expectedBucketsForRange(
+  from: string,
+  to: string,
+  granularity: Granularity,
+): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return [];
+  if (from > to) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const d = toLocalDate(from);
+  const end = toLocalDate(to);
+  // Guard against absurd ranges (e.g. from=0000-01-01): cap at ~3700 days.
+  for (let i = 0; i < 3700; i++) {
+    const iso = fromLocalDate(d);
+    if (iso > to) break;
+    const b = bucketDay(iso, granularity);
+    if (!seen.has(b)) {
+      seen.add(b);
+      out.push(b);
+    }
+    d.setDate(d.getDate() + 1);
+    if (d > end && fromLocalDate(d) > to) break;
+  }
+  return out;
+}
+
+/** Buckets from the first to the last observed bucket (no-range overview). */
+function expectedBucketsBetween(
+  points: TimeseriesPoint[],
+  granularity: Granularity,
+): string[] {
+  if (points.length === 0) return [];
+  let min = points[0]!.day;
+  let max = points[0]!.day;
+  for (const p of points) {
+    if (p.day < min) min = p.day;
+    if (p.day > max) max = p.day;
+  }
+  const out: string[] = [];
+  if (granularity === "day") {
+    const d = toLocalDate(min);
+    const end = toLocalDate(max);
+    for (let i = 0; i < 3700 && fromLocalDate(d) <= max; i++) {
+      out.push(fromLocalDate(d));
+      d.setDate(d.getDate() + 1);
+      if (d > end) break;
+    }
+    return out;
+  }
+  if (granularity === "week") {
+    const d = toLocalDate(min);
+    const end = toLocalDate(max);
+    for (let i = 0; i < 600 && fromLocalDate(d) <= max; i++) {
+      out.push(fromLocalDate(d));
+      d.setDate(d.getDate() + 7);
+      if (d > end) break;
+    }
+    return out;
+  }
+  // month: buckets are YYYY-MM-01 — step calendar months.
+  const [y0, m0] = min.split("-").map(Number);
+  const [y1, m1] = max.split("-").map(Number);
+  if (y0 == null || m0 == null || y1 == null || m1 == null) return [];
+  const startIdx = y0 * 12 + (m0 - 1);
+  const endIdx = y1 * 12 + (m1 - 1);
+  if (endIdx - startIdx > 600 || endIdx < startIdx) return [];
+  for (let idx = startIdx; idx <= endIdx; idx++) {
+    const y = Math.floor(idx / 12);
+    const m = (idx % 12) + 1;
+    out.push(`${y}-${String(m).padStart(2, "0")}-01`);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/stats/models  (aggregated per provider_id + model_id)
