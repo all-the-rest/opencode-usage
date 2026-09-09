@@ -115,4 +115,18 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 console.log(`[watch] polling ${SOURCE_DB} every ${POLL_MS}ms (Ctrl+C to stop)`);
+// Initial sync on launch: catches up everything that accumulated while the
+// watch was down (e.g. overnight). Without this, dev.command would show stale
+// data until the NEXT source change — the dashboard would miss today.
+try {
+  const res = sync();
+  console.log(
+    `[watch] initial sync — ${res.newMessages} new message(s) in ${res.durationMs} ms`,
+  );
+  lastDb = mtime(SOURCE_DB);
+  lastWal = mtime(SOURCE_DB + '-wal');
+  maybePrune();
+} catch (e) {
+  console.error('[watch] initial sync error:', e);
+}
 loop();
