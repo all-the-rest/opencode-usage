@@ -643,10 +643,13 @@ function TokenTrendChart({
               {/* Legende größter → kleinster (nur bei Gruppierung; „Gesamt“
                   behält die semantische Token-Typen-Reihenfolge). Eigene
                   Legend-Content-Komponente, da Recharts 3 kein `reversed`
-                  mehr kennt — die Bars werden aufsteigend gerendert. */}
+                  mehr kennt — die Bars werden aufsteigend gerendert.
+                  Immer custom (nie default), damit der unsichtbare
+                  Click-Catcher (__click) trotz legendType="none" nicht doch
+                  als Legenden-Eintrag durchsickert (Recharts 3). */}
               <Legend
                 wrapperStyle={{ flexWrap: "wrap" }}
-                content={grouped ? <DescLegend /> : undefined}
+                content={<DescLegend reverse={grouped} />}
               />
               {/* Stacking: Recharts legt die ERSTE Serie unters Stapel-Etage.
                   Damit bei Anbieter/Family/Hersteller die Serie mit den meisten
@@ -708,12 +711,19 @@ function barClickDay(
 /**
  * Legend content that renders series in REVERSE render order (i.e. largest
  * first, matching the stacked bars where the biggest segment sits on top).
+ * Bei gruppiert=false bleibt die semantische Reihenfolge („Gesamt").
+ * Filtert defensiv den unsichtbaren Click-Catcher (__click) — Recharts 3
+ * reicht ihn trotz legendType="none" ggf. im payload durch.
  */
-function DescLegend({ payload }: any) {
-  if (!payload?.length) return null;
+function DescLegend({ payload, reverse = true }: any) {
+  const visible = (payload ?? []).filter(
+    (e: any) => e.dataKey !== CATCHER_KEY && e.value !== CATCHER_KEY,
+  );
+  if (visible.length === 0) return null;
+  const items = reverse ? [...visible].reverse() : visible;
   return (
     <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
-      {[...payload].reverse().map((e: any) => (
+      {items.map((e: any) => (
         <li key={e.dataKey ?? e.value} className="inline-flex items-center gap-1.5">
           <span
             className="inline-block h-2 w-2 rounded-full"
@@ -755,7 +765,10 @@ function TokenTrendTooltip({
             style={{ backgroundColor: e.color }}
           />
           <span>{e.name}:</span>
-          <span>{formatTokens(Number(e.value) || 0)}</span>
+          <span>
+            {formatTokens(Number(e.value) || 0)} (
+            {formatRatio((Number(e.value) || 0) / (total || 1))})
+          </span>
         </div>
       ))}
       <div className="mt-1 border-t border-base-300 pt-1 font-medium">
@@ -967,10 +980,13 @@ function TokenShareChart({
  * Recharts legend renders without spacing, gluing labels together.
  */
 function ShareLegend({ payload }: any) {
-  if (!payload?.length) return null;
+  const visible = (payload ?? []).filter(
+    (e: any) => e.dataKey !== CATCHER_KEY && e.value !== CATCHER_KEY,
+  );
+  if (visible.length === 0) return null;
   return (
     <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
-      {payload.map((e: any) => (
+      {visible.map((e: any) => (
         <li
           key={e.dataKey ?? e.value}
           className="inline-flex items-center gap-1.5"

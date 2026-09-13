@@ -29,6 +29,18 @@
 
 ## Verifikations-Log
 
+### Runde 10 — Prozent-Tooltips/Legenden + __click-Legenden-Fix (2026-09-13, Orchestrator)
+Free-Analyse + Build (ses_f63ca7741ffei5ag5ZLdfGqQud) + Erweiterung M2, unabhängig verifiziert (ses_f63c89dc1ffeoRo06Z91f5S0mc) als **PASS** → Todos entfernt:
+- **PCT-1 (Models M1 Donuts):** Tooltip `absolut (xx,x%)` via formatRatio(value/sum), Legende Math.round → formatRatio.
+- **PCT-2 (Dashboard Token-Trend):** Tooltip pro Serie `absolut (xx,x%)` mit Bucket-Total; __click-Fix: DescLegend/ShareLegend filtern Catcher (dataKey+value), Trend-Legende immer custom mit reverse={grouped}.
+- **PCT-3 (Projects P1+P2):** ProjectTooltip mit total-Prop (Top-12) + `absolut (xx,x%)` je mode; TokenMix title+Legende mit % (segTotal||1).
+- **PCT-4 (Sessions S3):** TokenBreakdown title+Legende mit % (total||1).
+- **M2 (Models Top-10):** Tooltip `absolut (xx,x% von Top-10)` (total Top-10-Summe).
+- Nicht umgesetzt (bewusst): Kosten-Trend Single-Series, Scatter, Bucket-Averages, Heatmap, Bucket-Legenden.
+- Verifikation: tsc --noEmit grün, keine neuen i18n-Keys/Deps, total=0 Guards, __click-Filter intakt.
+
+## Verifikations-Log
+
 ### Runde 9 — Quell-DB-Retention (2026-09-04, Orchestrator)
 Feature „Quell-DB-Retention“ (Plan: ~/.opencode/plan/source-db-retention.md) von
 Build-Subagent (ses_f94d5e7d7ffeHTeFfIAK23vGqk) implementiert, von unabhängigem

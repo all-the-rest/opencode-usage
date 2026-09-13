@@ -760,7 +760,7 @@ function TokenBreakdown({
                   width: `${(p.value / total) * 100}%`,
                   backgroundColor: p.color,
                 }}
-                title={`${p.label}: ${formatTokens(p.value)}`}
+                title={`${p.label}: ${formatTokens(p.value)} (${formatRatio(p.value / total)})`}
               />
             ),
         )}
@@ -772,7 +772,7 @@ function TokenBreakdown({
               className="inline-block h-2 w-2 rounded-full"
               style={{ backgroundColor: p.color }}
             />
-            {p.label}: {formatTokens(p.value)}
+            {p.label}: {formatTokens(p.value)} ({formatRatio(p.value / total)})
           </span>
         ))}
       </div>

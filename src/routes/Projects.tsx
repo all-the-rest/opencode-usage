@@ -25,6 +25,7 @@ import {
   basename,
   formatCost,
   formatInt,
+  formatRatio,
   formatRelative,
   formatTokens,
 } from "../lib/format";
@@ -190,7 +191,7 @@ function ProjectsView({
                   fontSize={10}
                 />
                 <Tooltip
-                  content={<ProjectTooltip mode={mode} />}
+                  content={<ProjectTooltip mode={mode} total={total} />}
                   cursor={{ fill: "var(--color-base-300)", opacity: 0.3 }}
                 />
                 <Bar
@@ -323,14 +324,16 @@ function ProjectsView({
   );
 }
 
-function ProjectTooltip({ active, payload, mode }: any) {
+function ProjectTooltip({ active, payload, mode, total }: any) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload as { dir: string; value: number };
+  const abs = mode === "volume" ? formatTokens(p.value) : formatCost(p.value);
+  const ratio = formatRatio(p.value / (total || 1));
   return (
     <div className="rounded-box border border-base-300 bg-base-100 p-2 text-xs shadow">
       <div className="font-medium">{p.dir}</div>
       <div>
-        {mode === "volume" ? formatTokens(p.value) : formatCost(p.value)}
+        {abs} ({ratio})
       </div>
     </div>
   );
@@ -467,7 +470,9 @@ function ProjectRows({
                         key={s.key}
                         className={s.color}
                         style={{ width: `${(s.value / segTotal) * 100}%` }}
-                        title={`${t(s.key)}: ${formatTokens(s.value)}`}
+                        title={`${t(s.key)}: ${formatTokens(s.value)} (${formatRatio(
+                          s.value / (segTotal || 1),
+                        )})`}
                       />
                     ))}
                 </div>
@@ -475,7 +480,8 @@ function ProjectRows({
                   {segments.map((s) => (
                     <span key={s.key} className="flex items-center gap-1">
                       <span className={`inline-block size-2 rounded-sm ${s.color}`} />
-                      {t(s.key)}: {formatTokens(s.value)}
+                      {t(s.key)}: {formatTokens(s.value)} (
+                      {formatRatio(s.value / (segTotal || 1))})
                     </span>
                   ))}
                 </div>

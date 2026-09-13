@@ -704,11 +704,12 @@ function TopModelsChart({
                   interval={0}
                 />
                 <Tooltip
-                  formatter={(value) =>
-                    mode === "volume"
-                      ? formatTokens(Number(value ?? 0))
-                      : formatCost(Number(value ?? 0))
-                  }
+                  formatter={(value) => {
+                    const v = Number(value ?? 0);
+                    const abs =
+                      mode === "volume" ? formatTokens(v) : formatCost(v);
+                    return `${abs} (${formatRatio(v / (total || 1))})`;
+                  }}
                 />
                 <Bar
                   dataKey="value"
@@ -787,7 +788,10 @@ function DonutChart({
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value) => formatTokens(Number(value ?? 0))}
+                    formatter={(value) => {
+                      const v = Number(value ?? 0);
+                      return `${formatTokens(v)} (${formatRatio(v / sum)})`;
+                    }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -801,7 +805,7 @@ function DonutChart({
                   />
                   <span className="max-w-[10rem] truncate">{d.name}</span>
                   <span className="text-base-content/60">
-                    {Math.round((d.value / sum) * 100)}%
+                    {formatRatio(d.value / sum)}
                   </span>
                 </li>
               ))}
