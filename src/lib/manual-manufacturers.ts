@@ -31,8 +31,8 @@ const MANUAL_RULES: Array<[pattern: string, manufacturer: string]> = [
   // opencode = x-preview-f-free, opencode-go = ox-alpha-free.
   // Enthält kein „glm“, braucht daher explizite Regeln (statt der
   // glm-Heuristik in manufacturers.ts).
-  ["x-preview-f", "Zhipu AI"],
-  ["ox-alpha", "Zhipu AI"],
+  ["x-preview-f", "Z.ai"],
+  ["ox-alpha", "Z.ai"],
   // Omen Alpha — neues Stealth-Modell (opencode-go/omen-alpha), Lab unbekannt.
   ["omen-alpha", STEALTH_MANUFACTURER],
   // Union Alpha — neues Stealth-Modell (opencode/union-alpha,

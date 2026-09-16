@@ -19,7 +19,7 @@ const RULES: Array<[pattern: string, manufacturer: string]> = [
   ["minimax", "MiniMax"],
   ["deepseek", "DeepSeek"],
   ["qwen", "Alibaba"],
-  ["glm", "Zhipu AI"],
+  ["glm", "Z.ai"],
   ["kimi", "Moonshot AI"],
   ["mimo", "Xiaomi"],
   ["hy", "Tencent"], // Hunyuan (hy3, hy3-free)
