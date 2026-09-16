@@ -35,6 +35,9 @@ const MANUAL_RULES: Array<[pattern: string, manufacturer: string]> = [
   ["ox-alpha", "Zhipu AI"],
   // Omen Alpha — neues Stealth-Modell (opencode-go/omen-alpha), Lab unbekannt.
   ["omen-alpha", STEALTH_MANUFACTURER],
+  // Union Alpha — neues Stealth-Modell (opencode/union-alpha,
+  // opencode-go/union-alpha), Lab unbekannt.
+  ["union-alpha", STEALTH_MANUFACTURER],
 ];
 
 export default MANUAL_RULES;
