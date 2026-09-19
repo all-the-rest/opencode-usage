@@ -29,6 +29,7 @@ import {
   type ShareLang,
   type ShareProjectsMode,
   type ShareRange,
+  type ShareTheme,
 } from "./share";
 import { detectManufacturer } from "../src/lib/manufacturers";
 import type {
@@ -1195,13 +1196,15 @@ app.get("/api/stats/range", (c) =>
 // GET /api/stats/share (+ .svg / .png) — Share-Card (Todo 28/28e)
 // Query: range=today|week|month, project=<basename>,
 //        projects=all|hide|none (default all; replaces hideProjects=1),
-//        lang=de|en. Invalid range or projects -> 400.
+//        lang=de|en, theme=light|dark (default dark). Invalid range,
+//        projects or theme -> 400.
 // ---------------------------------------------------------------------------
 type ShareParams = {
   range: ShareRange;
   project?: string;
   projects: ShareProjectsMode;
   lang: ShareLang;
+  theme: ShareTheme;
 };
 
 function shareParams(c: Context): ShareParams | { error: string } {
@@ -1223,12 +1226,17 @@ function shareParams(c: Context): ShareParams | { error: string } {
   if (rawProjects !== "all" && rawProjects !== "hide" && rawProjects !== "none") {
     return { error: "invalid projects, expected all|hide|none" };
   }
+  const rawTheme = c.req.query("theme") ?? "dark";
+  if (rawTheme !== "light" && rawTheme !== "dark") {
+    return { error: "invalid theme, expected light|dark" };
+  }
   const langRaw = c.req.query("lang");
   return {
     range: raw as ShareRange,
     project: c.req.query("project") || undefined,
     projects: rawProjects,
     lang: langRaw === "en" ? "en" : "de",
+    theme: rawTheme,
   };
 }
 

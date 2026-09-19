@@ -56,7 +56,10 @@ import { ChartCard } from "../components/ChartCard";
 import { KpiCard } from "../components/KpiCard";
 import { periodRange, type PeriodUnit } from "../lib/period";
 import { paletteColor } from "../components/colors";
-import ShareDialog, { type ShareRange } from "../components/ShareDialog";
+import ShareDialog, {
+  type ShareRange,
+  type ShareTheme,
+} from "../components/ShareDialog";
 import { readProjectParam } from "../components/ProjectFilterBar";
 
 const TOKEN_FIELDS = [
@@ -127,6 +130,8 @@ const SHARE_PARAM = "share";
 const SHARE_PROJ_PARAM = "shareproj";
 /** Image language, independent of the UI language (?sharelang=de|en). */
 const SHARE_LANG_PARAM = "sharelang";
+/** Card theme (?sharetheme=light|dark, default dark). */
+const SHARE_THEME_PARAM = "sharetheme";
 
 const GRANULARITIES = ["day", "week", "month", "all"] as const satisfies readonly Granularity[];
 const SHARE_RANGES = [
@@ -193,7 +198,8 @@ export default function Dashboard() {
 
   // Share dialog state: ?share=<range> opens it, ?shareproj=all|hide|none
   // steers the project section, ?sharelang=de|en sets the IMAGE language
-  // (independent of the UI language). Invalid share values mean "closed"
+  // (independent of the UI language), ?sharetheme=light|dark sets the card
+  // theme. Invalid share values mean "closed"
   // WITHOUT rewriting the URL (same policy as gran/group).
   const shareRaw = searchParams.get(SHARE_PARAM);
   const shareOpen =
@@ -207,6 +213,8 @@ export default function Dashboard() {
   const uiLang = useLang();
   const shareImgLang: Lang =
     shareLangRaw === "en" ? "en" : shareLangRaw === "de" ? "de" : uiLang;
+  const shareTheme: ShareTheme =
+    searchParams.get(SHARE_THEME_PARAM) === "light" ? "light" : "dark";
 
   /**
    * Select / toggle a period. `start` is the bucket's start date (as produced by
@@ -242,6 +250,7 @@ export default function Dashboard() {
       params.delete(SHARE_PARAM);
       params.delete(SHARE_PROJ_PARAM);
       params.delete(SHARE_LANG_PARAM);
+      params.delete(SHARE_THEME_PARAM);
     }
     setSearchParams(params);
   };
@@ -263,11 +272,19 @@ export default function Dashboard() {
     setSearchParams(params);
   };
 
+  /** Set ?sharetheme=light|dark (dark is the default — then no param). */
+  const setShareTheme = (theme: ShareTheme) => {
+    const params = new URLSearchParams(searchParams);
+    if (theme === "dark") params.delete(SHARE_THEME_PARAM);
+    else params.set(SHARE_THEME_PARAM, theme);
+    setSearchParams(params);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header row: page title left, share action right (dialog state lives
           in the URL: ?share=today|week|month, ?shareproj=all|hide|none,
-          ?sharelang=de|en). */}
+          ?sharelang=de|en, ?sharetheme=light|dark). */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-3xl font-bold">{t("routeDashboard")}</h1>
         <button
@@ -285,9 +302,11 @@ export default function Dashboard() {
           project={project}
           projects={shareProjects}
           imgLang={shareImgLang}
+          theme={shareTheme}
           onRange={setShareParam}
           onProjects={setShareProj}
           onImgLang={setShareImgLang}
+          onTheme={setShareTheme}
           onClose={() => setShareParam(null)}
         />
       )}

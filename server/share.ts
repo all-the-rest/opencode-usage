@@ -27,6 +27,7 @@ export type ShareRange =
   | "month"
   | "lastmonth";
 export type ShareLang = "de" | "en";
+export type ShareTheme = "light" | "dark";
 /**
  * Tri-State für die Projektsektion:
  * - "all": Top-5-Projekte mit echten Basenames.
@@ -50,6 +51,7 @@ export interface ShareRecord {
 export interface ShareData {
   range: ShareRange;
   lang: ShareLang;
+  theme: ShareTheme;
   periodLabel: string;
   periodDetail: string;
   project: string | null;
@@ -244,9 +246,12 @@ export function getShareData(
     /** Tri-State statt hideProjects (Todo 28e). Default "all". */
     projects?: ShareProjectsMode;
     lang?: ShareLang;
+    /** Card-Farbschema. Default "dark" (bisheriges Design). */
+    theme?: ShareTheme;
   },
 ): ShareData {
   const lang: ShareLang = opts.lang ?? "de";
+  const theme: ShareTheme = opts.theme ?? "dark";
   const projectsMode: ShareProjectsMode = opts.projects ?? "all";
   const L = LABELS[lang];
   const { start, end } = resolveRangeWindow(opts.range);
@@ -451,6 +456,7 @@ export function getShareData(
   return {
     range: opts.range,
     lang,
+    theme,
     periodLabel,
     periodDetail,
     project: opts.project?.trim() || null,
@@ -478,7 +484,58 @@ export function getShareData(
 const W = 1200;
 const H = 630;
 const ACCENT = "#422ad5";
-const BG = "#17151f";
+
+interface SharePalette {
+  bg: string;
+  card: string;
+  title: string;
+  subtitle: string;
+  sectionTitle: string;
+  badgeText: string;
+  heroValue: string;
+  heroLabel: string;
+  cardLabel: string;
+  cardValue: string;
+  cardSub: string;
+  projectName: string;
+  projectValue: string;
+  footer: string;
+}
+
+const THEMES: Record<ShareTheme, SharePalette> = {
+  dark: {
+    bg: "#17151f",
+    card: "#211d2e",
+    title: "#ffffff",
+    subtitle: "#b9b3d0",
+    sectionTitle: "#cdc7ea",
+    badgeText: "#cdc7ea",
+    heroValue: "#ffffff",
+    heroLabel: "#9a93b5",
+    cardLabel: "#9a93b5",
+    cardValue: "#ffffff",
+    cardSub: "#776f96",
+    projectName: "#e6e2f5",
+    projectValue: "#9a93b5",
+    footer: "#776f96",
+  },
+  light: {
+    bg: "#ffffff",
+    card: "#f0edf7",
+    title: "#17151f",
+    subtitle: "#5c5675",
+    sectionTitle: "#3d3752",
+    badgeText: "#3226a8",
+    heroValue: "#17151f",
+    heroLabel: "#5c5675",
+    cardLabel: "#5c5675",
+    cardValue: "#17151f",
+    cardSub: "#7a7391",
+    projectName: "#241e38",
+    projectValue: "#5c5675",
+    footer: "#7a7391",
+  },
+};
 
 /** XML-Escaping für alle dynamischen Texte. */
 function esc(s: string): string {
@@ -492,6 +549,7 @@ function esc(s: string): string {
 
 export function renderShareCard(data: ShareData): string {
   const L = LABELS[data.lang];
+  const P = THEMES[data.theme] ?? THEMES.dark;
 
   // Exclude-Layout (keine Projekte): Rekord-Badges als volle zweite Reihe.
   const exclude = data.topProjects.length === 0;
@@ -531,14 +589,14 @@ export function renderShareCard(data: ShareData): string {
       <stop offset="1" stop-color="#7c5cff"/>
     </linearGradient>
   </defs>`);
-  parts.push(`<rect width="${W}" height="${H}" fill="${BG}"/>`);
+  parts.push(`<rect width="${W}" height="${H}" fill="${P.bg}"/>`);
   parts.push(`<rect width="${W}" height="8" fill="url(#accentBar)"/>`);
 
   // Header
   parts.push(
     `<circle cx="64" cy="66" r="12" fill="${ACCENT}"/>`,
-    `<text x="88" y="73" font-size="26" font-weight="700" fill="#ffffff">OpenCode Usage</text>`,
-    `<text x="${W - 64}" y="73" font-size="24" font-weight="600" fill="#b9b3d0" text-anchor="end">${esc(data.periodLabel)} · ${esc(data.periodDetail)}</text>`,
+    `<text x="88" y="73" font-size="26" font-weight="700" fill="${P.title}">OpenCode Usage</text>`,
+    `<text x="${W - 64}" y="73" font-size="24" font-weight="600" fill="${P.subtitle}" text-anchor="end">${esc(data.periodLabel)} · ${esc(data.periodDetail)}</text>`,
   );
 
   // Projekt-Badge
@@ -546,7 +604,7 @@ export function renderShareCard(data: ShareData): string {
   if (data.project) {
     parts.push(
       `<rect x="64" y="${y - 24}" rx="14" width="${Math.min(420, 40 + data.project.length * 11)}" height="32" fill="${ACCENT}" opacity="0.35"/>`,
-      `<text x="84" y="${y - 2}" font-size="18" fill="#cdc7ea">📁 ${esc(data.project)}</text>`,
+      `<text x="84" y="${y - 2}" font-size="18" fill="${P.badgeText}">📁 ${esc(data.project)}</text>`,
     );
     y += 46;
   }
@@ -559,9 +617,9 @@ export function renderShareCard(data: ShareData): string {
   const inputShare = data.inputTokens + data.cacheWriteTokens;
   const outputShare = data.outputTokens + data.reasoningTokens;
   parts.push(
-    `<text x="64" y="${heroBase}" font-size="76" font-weight="800" fill="#ffffff">${esc(fmtTokens(data.totalTokens))}</text>`,
-    `<text x="64" y="${heroSub}" font-size="24" fill="#9a93b5">${esc(L.tokens)}</text>`,
-    `<text x="${W - 64}" y="${heroBase}" font-size="21" fill="#9a93b5" text-anchor="end">${esc(L.splitIn)} ${esc(fmtTokens(inputShare))} · ${esc(L.splitCached)} ${esc(fmtTokens(data.cacheReadTokens))} · ${esc(L.splitOut)} ${esc(fmtTokens(outputShare))}</text>`,
+    `<text x="64" y="${heroBase}" font-size="76" font-weight="800" fill="${P.heroValue}">${esc(fmtTokens(data.totalTokens))}</text>`,
+    `<text x="64" y="${heroSub}" font-size="24" fill="${P.heroLabel}">${esc(L.tokens)}</text>`,
+    `<text x="${W - 64}" y="${heroBase}" font-size="21" fill="${P.heroLabel}" text-anchor="end">${esc(L.splitIn)} ${esc(fmtTokens(inputShare))} · ${esc(L.splitCached)} ${esc(fmtTokens(data.cacheReadTokens))} · ${esc(L.splitOut)} ${esc(fmtTokens(outputShare))}</text>`,
   );
 
   // KPI-Zeile (4 Zellen)
@@ -570,9 +628,9 @@ export function renderShareCard(data: ShareData): string {
   kpiCells.forEach(([label, value], i) => {
     const x = 64 + i * cellW;
     parts.push(
-      `<rect x="${x}" y="${kpiY}" width="${cellW - 16}" height="86" rx="12" fill="#211d2e"/>`,
-      `<text x="${x + 18}" y="${kpiY + 36}" font-size="17" fill="#9a93b5">${esc(label)}</text>`,
-      `<text x="${x + 18}" y="${kpiY + 68}" font-size="27" font-weight="700" fill="#ffffff">${esc(value)}</text>`,
+      `<rect x="${x}" y="${kpiY}" width="${cellW - 16}" height="86" rx="12" fill="${P.card}"/>`,
+      `<text x="${x + 18}" y="${kpiY + 36}" font-size="17" fill="${P.cardLabel}">${esc(label)}</text>`,
+      `<text x="${x + 18}" y="${kpiY + 68}" font-size="27" font-weight="700" fill="${P.cardValue}">${esc(value)}</text>`,
     );
   });
 
@@ -580,17 +638,17 @@ export function renderShareCard(data: ShareData): string {
     // Top-Projekte (links, max 5 Zeilen)
     const projY = kpiY + 122;
     parts.push(
-      `<text x="64" y="${projY}" font-size="19" font-weight="600" fill="#cdc7ea">${esc(L.projects)}</text>`,
+      `<text x="64" y="${projY}" font-size="19" font-weight="600" fill="${P.sectionTitle}">${esc(L.projects)}</text>`,
     );
     const barMaxW = 300;
     data.topProjects.slice(0, 5).forEach((p, i) => {
       const rowY = projY + 22 + i * 32;
       const w = Math.max(4, Math.round((p.tokens / maxProj) * barMaxW));
       parts.push(
-        `<text x="64" y="${rowY + 15}" font-size="15" fill="#e6e2f5">${esc(p.name.length > 30 ? p.name.slice(0, 29) + "…" : p.name)}</text>`,
-        `<rect x="330" y="${rowY + 2}" width="${barMaxW}" height="16" rx="8" fill="#211d2e"/>`,
+        `<text x="64" y="${rowY + 15}" font-size="15" fill="${P.projectName}">${esc(p.name.length > 30 ? p.name.slice(0, 29) + "…" : p.name)}</text>`,
+        `<rect x="330" y="${rowY + 2}" width="${barMaxW}" height="16" rx="8" fill="${P.card}"/>`,
         `<rect x="330" y="${rowY + 2}" width="${w}" height="16" rx="8" fill="url(#accentBar)"/>`,
-        `<text x="${330 + barMaxW + 14}" y="${rowY + 15}" font-size="15" fill="#9a93b5">${esc(fmtTokens(p.tokens))}</text>`,
+        `<text x="${330 + barMaxW + 14}" y="${rowY + 15}" font-size="15" fill="${P.projectValue}">${esc(fmtTokens(p.tokens))}</text>`,
       );
     });
 
@@ -603,10 +661,10 @@ export function renderShareCard(data: ShareData): string {
       const x = recX + col * (recW / 2 + 8);
       const ry = projY + 22 + row * 92;
       parts.push(
-        `<rect x="${x}" y="${ry}" width="${recW / 2 - 8}" height="80" rx="12" fill="#211d2e"/>`,
-        `<text x="${x + 14}" y="${ry + 26}" font-size="12" fill="#9a93b5">${esc(label)}</text>`,
-        `<text x="${x + 14}" y="${ry + 52}" font-size="20" font-weight="700" fill="#ffffff">${esc(rec?.value ?? L.noData)}</text>`,
-        `<text x="${x + 14}" y="${ry + 70}" font-size="10" fill="#776f96">${esc(rec?.title ?? "")}</text>`,
+        `<rect x="${x}" y="${ry}" width="${recW / 2 - 8}" height="80" rx="12" fill="${P.card}"/>`,
+        `<text x="${x + 14}" y="${ry + 26}" font-size="12" fill="${P.cardLabel}">${esc(label)}</text>`,
+        `<text x="${x + 14}" y="${ry + 52}" font-size="20" font-weight="700" fill="${P.cardValue}">${esc(rec?.value ?? L.noData)}</text>`,
+        `<text x="${x + 14}" y="${ry + 70}" font-size="10" fill="${P.cardSub}">${esc(rec?.title ?? "")}</text>`,
       );
     });
   } else {
@@ -617,10 +675,10 @@ export function renderShareCard(data: ShareData): string {
     recordEntries.forEach(([label, rec], i) => {
       const x = 64 + i * cellW;
       parts.push(
-        `<rect x="${x}" y="${recRowY}" width="${cellW - 16}" height="${recCellH}" rx="12" fill="#211d2e"/>`,
-        `<text x="${x + 18}" y="${recRowY + 34}" font-size="15" fill="#9a93b5">${esc(label)}</text>`,
-        `<text x="${x + 18}" y="${recRowY + 68}" font-size="26" font-weight="700" fill="#ffffff">${esc(rec?.value ?? L.noData)}</text>`,
-        `<text x="${x + 18}" y="${recRowY + 92}" font-size="11" fill="#776f96">${esc(rec?.title ?? "")}</text>`,
+        `<rect x="${x}" y="${recRowY}" width="${cellW - 16}" height="${recCellH}" rx="12" fill="${P.card}"/>`,
+        `<text x="${x + 18}" y="${recRowY + 34}" font-size="15" fill="${P.cardLabel}">${esc(label)}</text>`,
+        `<text x="${x + 18}" y="${recRowY + 68}" font-size="26" font-weight="700" fill="${P.cardValue}">${esc(rec?.value ?? L.noData)}</text>`,
+        `<text x="${x + 18}" y="${recRowY + 92}" font-size="11" fill="${P.cardSub}">${esc(rec?.title ?? "")}</text>`,
       );
     });
   }
@@ -631,8 +689,8 @@ export function renderShareCard(data: ShareData): string {
     { dateStyle: "medium", timeStyle: "short" },
   ).format(new Date());
   parts.push(
-    `<text x="64" y="${H - 28}" font-size="14" fill="#776f96">${esc(generated)}</text>`,
-    `<text x="${W - 64}" y="${H - 28}" font-size="14" fill="#776f96" text-anchor="end">opencode-usage</text>`,
+    `<text x="64" y="${H - 28}" font-size="14" fill="${P.footer}">${esc(generated)}</text>`,
+    `<text x="${W - 64}" y="${H - 28}" font-size="14" fill="${P.footer}" text-anchor="end">opencode-usage</text>`,
   );
 
   parts.push("</svg>");

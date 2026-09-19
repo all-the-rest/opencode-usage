@@ -2,13 +2,15 @@
  * Share dialog ("Teilen") — daisyUI `modal modal-open`, controlled entirely by
  * URL params (?share=today|yesterday|week|lastweek|month|lastmonth,
  * ?shareproj=all|hide|none,
- * ?sharelang=de|en) so any dialog state is a shareable link (rule "URL-Sync").
+ * ?sharelang=de|en, ?sharetheme=light|dark) so any dialog state is a
+ * shareable link (rule "URL-Sync").
  *
  * Shows a server-rendered preview card (GET /api/stats/share.svg, 1200×630,
- * dark social-media design) and offers the actions PNG download / PNG to
+ * light/dark social-media design) and offers the actions PNG download / PNG to
  * clipboard / SVG in a new tab. All three endpoints receive the same query
  * string: range, IMAGE language (independent of the UI language), the global
- * ?project filter and the project mode (include / hide names / exclude).
+ * ?project filter, the project mode (include / hide names / exclude) and the
+ * card theme (light / dark).
  *
  * Closing is handled by the parent (removes the params from the URL): via the
  * ✕ button top right or a click on the modal backdrop.
@@ -26,6 +28,7 @@ export type ShareRange =
   | "month"
   | "lastmonth";
 export type ShareProjectsMode = "all" | "hide" | "none";
+export type ShareTheme = "light" | "dark";
 
 const RANGES: {
   value: ShareRange;
@@ -74,12 +77,14 @@ function shareQuery(
   project: string | undefined,
   projects: ShareProjectsMode,
   imgLang: Lang,
+  theme: ShareTheme,
 ): string {
   const params = new URLSearchParams();
   params.set("range", range);
   params.set("lang", imgLang);
   if (project) params.set("project", project);
   if (projects !== "all") params.set("projects", projects);
+  if (theme !== "dark") params.set("theme", theme);
   return params.toString();
 }
 
@@ -88,9 +93,11 @@ export default function ShareDialog({
   project,
   projects,
   imgLang,
+  theme,
   onRange,
   onProjects,
   onImgLang,
+  onTheme,
   onClose,
 }: {
   range: ShareRange;
@@ -100,9 +107,12 @@ export default function ShareDialog({
   projects: ShareProjectsMode;
   /** Language of the RENDERED CARD — independent of the UI language. */
   imgLang: Lang;
+  /** Color scheme of the RENDERED CARD (light / dark). */
+  theme: ShareTheme;
   onRange: (range: ShareRange) => void;
   onProjects: (mode: ShareProjectsMode) => void;
   onImgLang: (lang: Lang) => void;
+  onTheme: (theme: ShareTheme) => void;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -114,7 +124,7 @@ export default function ShareDialog({
     [],
   );
 
-  const qs = shareQuery(range, project, projects, imgLang);
+  const qs = shareQuery(range, project, projects, imgLang, theme);
   const svgUrl = `/api/stats/share.svg?${qs}`;
   const pngUrl = `/api/stats/share.png?${qs}`;
 
@@ -171,7 +181,7 @@ export default function ShareDialog({
         </div>
 
         {/* Range segmented control */}
-        <div className="join">
+        <div className="join flex flex-wrap">
           {RANGES.map((r) => (
             <button
               key={r.value}
@@ -184,10 +194,13 @@ export default function ShareDialog({
           ))}
         </div>
 
-        {/* Project section mode: include / hide names / exclude entirely */}
-        <div className="space-y-1">
-          <span className="text-sm opacity-70">{t("shareProjectsLabel")}</span>
-          <div className="join">
+        {/* Card options: label + control rows with aligned columns */}
+        <div className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3">
+          {/* Project section mode: include / hide names / exclude entirely */}
+          <span className="text-sm text-base-content/70">
+            {t("shareProjectsLabel")}
+          </span>
+          <div className="join flex flex-wrap">
             {PROJECT_MODES.map((m) => (
               <button
                 key={m.value}
@@ -199,11 +212,11 @@ export default function ShareDialog({
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Image language — independent of the UI language */}
-        <div className="space-y-1">
-          <span className="text-sm opacity-70">{t("shareImageLang")}</span>
+          {/* Image language — independent of the UI language */}
+          <span className="text-sm text-base-content/70">
+            {t("shareImageLang")}
+          </span>
           <div className="join">
             {(["de", "en"] as const).map((l) => (
               <button
@@ -213,6 +226,23 @@ export default function ShareDialog({
                 onClick={() => onImgLang(l)}
               >
                 {l === "de" ? "DE" : "EN"}
+              </button>
+            ))}
+          </div>
+
+          {/* Card theme — light / dark */}
+          <span className="text-sm text-base-content/70">
+            {t("shareThemeLabel")}
+          </span>
+          <div className="join">
+            {(["light", "dark"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`btn btn-sm join-item ${theme === m ? "btn-primary" : ""}`}
+                onClick={() => onTheme(m)}
+              >
+                {m === "light" ? t("shareThemeLight") : t("shareThemeDark")}
               </button>
             ))}
           </div>
