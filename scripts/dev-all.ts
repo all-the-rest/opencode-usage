@@ -92,7 +92,14 @@ start(
   ["exec", "tsx", "watch", "server/index.ts"],
   { NODE_ENV: "development" },
 );
-start("web", COLORS.yellow, "pnpm", ["exec", "vite"]);
+// Vite bindet per Default nur auf `localhost` — und das ist je nach System der
+// IPv6-Loopback (`::1`). Ein Proxy, der auf IPv4 zeigt (z. B.
+// `tailscale serve --bg http://127.0.0.1:5173`), läuft dann ins Leere und
+// antwortet mit 502 "connection refused". Deshalb explizit auf 0.0.0.0 binden:
+// dann ist der Dev-Server über IPv4 auf jedem Interface erreichbar.
+// Für eine reine Localhost-Session überschreiben: DEV_HOST=localhost pnpm dev:all
+const WEB_HOST = process.env.DEV_HOST ?? "0.0.0.0";
+start("web", COLORS.yellow, "pnpm", ["exec", "vite", "--host", WEB_HOST]);
 
 console.log(
   `[dev-all] Läuft: watch + api (:3712) + vite (:5173). Beenden mit Strg+C.`,
