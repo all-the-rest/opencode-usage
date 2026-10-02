@@ -62,5 +62,7 @@ docs/stats-db-schema.md.
 - `agents.todo.md` ist die Todo-Quelle der Wahrheit. Neue Todos dort eintragen.
 - Todos nur entfernen, wenn ein separater Verify-Subagent sie bestätigt hat.
   Verifizierte MÜSSEN entfernt werden.
-- Größere Implementierungen an Build-Subagents auslagern; Orchestrator
-  koordiniert nur.
+- Der Verify-Flow (pull → delegieren → verifizieren → committen → amend →
+  push + CI) wird hier nicht wiederholt: Skill `build-verify`
+  (`agents-skills/.agents/skills/build-verify/SKILL.md`, Always-on-Kernel
+  `.agents/rules/build-verify.md`). Repo-spezifische Kommandos: **Befehle** oben.
