@@ -14,9 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # pnpm-Version kommt aus dem packageManager-Feld der package.json
-      # (pnpm/action-setup@v4 ohne version-Input leitet sie daraus ab).
+      # pnpm-Version: Major-Linie im Action-Input (kein Exakt-Pin).
+      # packageManager bleibt bewusst draußen — es gilt die lokale Version.
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
