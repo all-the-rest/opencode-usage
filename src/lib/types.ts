@@ -114,6 +114,18 @@ export interface MetaInfo {
   lastSync: number | null; // epoch ms of last extractor sync
   sourceDb: string;
   messageCount: number;
+  /**
+   * Welche Model-Quelle der Server aktuell benutzt — wichtig zur Diagnose
+   * von Namens-/Family-Fehlern: „snapshot" heißt, der Live-Abruf von
+   * models.dev ist (noch) nicht durchgelaufen, und die Metadaten können bis
+   * zu 24 h alt sein. Zusätzlicher Hinweis: models.dev/frühere Position.
+   */
+  modelCatalog: {
+    source: "live" | "snapshot";
+    providers: number;
+    fetchedAt: number | null; // epoch ms, null solange nie live geholt
+    error: string | null; // letzter Fehlergrund, wenn "snapshot"
+  };
 }
 
 export type Granularity = "day" | "week" | "month" | "all";

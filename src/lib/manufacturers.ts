@@ -7,11 +7,16 @@
  * (timeseries groupBy=manufacturer) importiert.
  */
 
-import MANUAL_RULES, { STEALTH_MANUFACTURER } from "./manual-manufacturers";
+import MANUAL_RULES, {
+  compileRules,
+  matchManualManufacturer,
+  STEALTH_MANUFACTURER,
+  type ManualRule,
+} from "./manual-manufacturers";
 
 export { STEALTH_MANUFACTURER };
 
-const RULES: Array<[pattern: string, manufacturer: string]> = [
+const RULES: ManualRule[] = [
   // Reihenfolge: spezifischere Patterns zuerst
   // Stealth-/Manuell-Zuordnungen ZUERST (siehe manual-manufacturers.ts —
   // dort neue Stealth-Modelle eintragen!)
@@ -22,16 +27,39 @@ const RULES: Array<[pattern: string, manufacturer: string]> = [
   ["glm", "Z.ai"],
   ["kimi", "Moonshot AI"],
   ["mimo", "Xiaomi"],
-  ["hy", "Tencent"], // Hunyuan (hy3, hy3-free)
-  ["ling", "InclusionAI"],
+  // Hunyuan: nur als eigenständiges Token, nicht als blindes Substring —
+  // sonst träfe „hy" auch IDs wie „phyto“/„hydrogen“. `[\d.]*` lässt die
+  // Versionsnummer zu (hy3, hy3-free).
+  ["(^|[-_./])hy[\\d.]*($|[-_])", "Tencent"],
+  // InclusionAI: beide Linien als Token verankert — ein blindes „ling"
+  // traf auch thinkingmachines/Inkling* (fälschlich InclusionAI).
+  ["(^|[-_./])ling([\\d.]*)?($|[-_:])", "InclusionAI"],
+  ["(^|[-_./])ring([\\d.]*)?($|[-_:])", "InclusionAI"], // Ring 1T/2.6 (incl. ring-2.6-1t-free)
   ["longcat", "Meituan"],
   ["gemma", "Google"],
+  ["gemini", "Google"],
+  ["claude", "Anthropic"],
+  // nemotron VOR llama: die Nemotron-Modelle sind auf Llama gebaut
+  // (nvidia/Llama-3.3-Nemotron-…), der komplette Name gehört trotzdem
+  // zu NVIDIA — „llama" zuerst würde den eigentlichen Hersteller überschreiben.
+  ["nemotron", "NVIDIA"],
+  ["llama", "Meta"], // Meta
+  ["muse", "Meta"], // Muse Spark 1.x + Muse Glimmer (z.T. Contributor-Tier)
+  ["mistral|ministral|magistral", "Mistral"],
+  ["(^|[-_./])step[\\d.]*($|[-_])", "StepFun"], // Step 3 Flash & Co.
+  ["grok", "xAI"],
+  ["trinity", "Arcee AI"], // Trinity Large (nicht stealth — Labor bekannt)
+  // OpenAI: „gpt" plus die o-Serie, die kein „gpt" im Namen trägt
+  // (o3/o4-mini …). Token-verankert, damit „o200k“ & Co. nicht trifft.
+  ["(^|[-_./])o[134]([\\d.]*)?($|[-_:])", "OpenAI"],
   ["gpt", "OpenAI"],
   ["laguna", "Poolside"],
-  ["muse-spark", "Meta"], // Muse Spark 1.x (Meta, z.T. Contributor-Tier)
   ["north-mini", "Cohere"], // North Mini Code (Cohere)
   ["bonsai", "Prism ML"],
 ];
+
+/** Vorkompiliert — die Regeln werden pro Modell durchlaufen. */
+const COMPILED_RULES = compileRules(RULES);
 
 /** Kanonischer Schlüssel für nicht identifizierte Hersteller. */
 export const OTHER_MANUFACTURER = "Other";
@@ -45,8 +73,11 @@ export function normalizeModelId(modelId: string): string {
 /** Hersteller zu einer model_id bestimmen (OTHER_MANUFACTURER als Fallback). */
 export function detectManufacturer(modelId: string): string {
   const id = normalizeModelId(modelId).toLowerCase();
-  for (const [pattern, manufacturer] of RULES) {
-    if (id.includes(pattern)) return manufacturer;
+  // Handregeln (Stealth, Ex-Stealth) haben Vorrang vor den generischen.
+  const manual = matchManualManufacturer(id);
+  if (manual) return manual;
+  for (const [re, manufacturer] of COMPILED_RULES) {
+    if (re.test(id)) return manufacturer;
   }
   return OTHER_MANUFACTURER;
 }

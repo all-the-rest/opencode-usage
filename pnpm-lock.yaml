@@ -12,8 +12,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.3)
       '@opencode-ai/models':
-        specifier: ^0.0.50
-        version: 0.0.50
+        specifier: ^0.0.86
+        version: 0.0.86
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -268,8 +268,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@opencode-ai/models@0.0.50':
-    resolution: {integrity: sha512-LNkxbXYY+MqRh8QrD9Qv1e5XG6DP1uLG2Jytjqg25UtHLtDfl5C578BWzDbwV7xDB/Au3AJFz81ZP0CDg0ZB2Q==}
+  '@opencode-ai/models@0.0.86':
+    resolution: {integrity: sha512-KbXVsTwMErn3NcLtvGneLTz3WEus+HenuzkA/RIxafjD/sfCBvkNIgjzPQJFxb0uqzZH9f3D2l2bJHEgNsh/0Q==}
     engines: {node: '>=18'}
     peerDependencies:
       effect: 4.0.0-beta.83
@@ -1314,7 +1314,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@opencode-ai/models@0.0.50': {}
+  '@opencode-ai/models@0.0.86': {}
 
   '@oxc-project/types@0.146.0': {}
 

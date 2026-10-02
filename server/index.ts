@@ -21,7 +21,13 @@ import {
   cacheHitRatio,
   type DatabaseType,
 } from "./db";
-import { resolveModelMeta, familyKey } from "./metadata";
+import {
+  resolveModelMeta,
+  familyKey,
+  refreshLiveCatalog,
+  startCatalogRefresh,
+  catalogStatus,
+} from "./metadata";
 import {
   getShareData,
   renderShareCard,
@@ -1300,6 +1306,7 @@ app.get("/api/stats/meta", (c) =>
       lastSync: Number.isFinite(lastSync) ? lastSync : null,
       sourceDb: sourceRow?.value ?? "",
       messageCount: countRow?.c ?? 0,
+      modelCatalog: catalogStatus(),
     };
     return c.json(response);
   }),
@@ -1347,3 +1354,10 @@ serve(
     );
   },
 );
+
+// ---------------------------------------------------------------------------
+// Model-Katalog (models.dev): einmal beim Start, danach im Hintergrund alle
+// CATALOG_TTL_MS. Blockiert den Listener nicht — bis der Abruf durch ist,
+// läuft die Auflösung mit dem gebündelten Snapshot weiter.
+// ---------------------------------------------------------------------------
+void refreshLiveCatalog().finally(startCatalogRefresh);
