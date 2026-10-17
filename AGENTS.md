@@ -64,5 +64,5 @@ docs/stats-db-schema.md.
   Verifizierte MÜSSEN entfernt werden.
 - Der Verify-Flow (pull → delegieren → verifizieren → committen → amend →
   push + CI) wird hier nicht wiederholt: Skill `build-verify`
-  (`agents-skills/.agents/skills/build-verify/SKILL.md`, Always-on-Kernel
+  (`agents-skills/.agents/skills/build-verify/SKILL.md`, Kernregel
   `.agents/rules/build-verify.md`). Repo-spezifische Kommandos: **Befehle** oben.
