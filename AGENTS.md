@@ -65,4 +65,5 @@ docs/stats-db-schema.md.
 - Der Verify-Flow (pull → delegieren → verifizieren → committen → amend →
   push + CI) wird hier nicht wiederholt: Skill `build-verify`
   (`agents-skills/.agents/skills/build-verify/SKILL.md`, Kernregel
-  `.agents/rules/build-verify.md`). Repo-spezifische Kommandos: **Befehle** oben.
+  `agents-skills/.agents/rules/build-verify.md`).
+  Repo-spezifische Kommandos: **Befehle** oben.
