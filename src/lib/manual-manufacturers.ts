@@ -81,9 +81,14 @@ const MANUAL_RULES: ManualRule[] = [
   // opencode-go/union-alpha), Lab unbekannt.
   ["union-alpha", STEALTH_MANUFACTURER],
   // Space Bunny — EX-Stealth: am 2026-10-19 als MiniMax M3.1 Flash enthüllt
-  // (Quelle: ocgo-Price-Tracker-Changelog 2026-10-19 — „Space Bunny“ removed,
-  // „MiniMax M3.1 Flash Free“ added; bestätigt von models.dev). Die frei
-  // gewordene ID ist minimax-m3.1-flash-free; die alten IDs behalten ihren
+  // (Identität: MiniMax' eigener Launch-Post vom 19.10. nennt Space Bunny
+  // eine frühere Version von M3.1 Flash; OpenCode: „Space Bunny was MiniMax
+  // M3.1 Flash“ (#57083); der ocgo-Tracker-Changelog 2026-10-19 führt „Space
+  // Bunny“ als removed und „MiniMax M3.1 Flash Free“ als added. models.dev
+  // bestätigt die frei gewordene ID minimax-m3.1-flash-free (family `minimax`,
+  // release 2026-10-19) — zur Identität sagt der Katalog nichts).
+  // Enthält kein „minimax“, braucht daher eine explizite Handregel (statt der
+  // minimax-Heuristik in manufacturers.ts). Die alten IDs behalten ihren
   // Katalog-Anzeigenamen: opencode/space-bunny-free und
   // opencode-go/space-bunny-free → „Space Bunny Free“, stealth/space-bunny-alpha
   // (nano-gpt/kilo/openrouter) → „Space Bunny Alpha“ (bei kilo mit dem Zusatz
