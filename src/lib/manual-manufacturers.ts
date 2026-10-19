@@ -12,10 +12,10 @@
  * Family — die Heuristik (familyKey/resolveModelMeta) liefert für sie keinen
  * eigenen Slug.
  *
- * Ex-Stealth-Modelle mit gelüfteter Identität (z.B. ox-alpha = GLM-5.3-Flash,
- * Z.ai) stehen NICHT mehr hier unter STEALTH, sondern mit ihrem echten
- * Hersteller in MANUAL_RULES und mit ihrer echten Family in
- * MANUAL_FAMILY_RULES weiter unten.
+ * Ex-Stealth-Modelle mit gelüfteter Identität (ox-alpha = GLM-5.3-Flash,
+ * Z.ai / space-bunny = MiniMax M3.1 Flash, MiniMax) stehen NICHT mehr hier
+ * unter STEALTH, sondern mit ihrem echten Hersteller in MANUAL_RULES und mit
+ * ihrer echten Family in MANUAL_FAMILY_RULES weiter unten.
  *
  * Bevor ein neues Stealth-Modell auftaucht: einfach eine Zeile ergänzen,
  * z.B.  ["trinity-large", STEALTH_MANUFACTURER]
@@ -80,15 +80,15 @@ const MANUAL_RULES: ManualRule[] = [
   // Union Alpha — neues Stealth-Modell (opencode/union-alpha,
   // opencode-go/union-alpha), Lab unbekannt.
   ["union-alpha", STEALTH_MANUFACTURER],
-  // Space Bunny — OpenCode-Free-Modell (opencode/space-bunny-free UND
-  // opencode-go/space-bunny-free; als „stealth/space-bunny-alpha" auch bei
-  // nano-gpt/kilo/openrouter). Ein Pattern deckt beide Namensvarianten ab.
-  // Stand 2026-09-26: Lab UNBESTÄTIGT, Verdacht auf MiniMax 3.1 Flash — der
-  // Katalog liefert für das Modell bewusst KEINE family. Sobald das Lab
-  // bestätigt ist, diese Zeile durch ["space-bunny", "MiniMax"] ersetzen
-  // (die generische ["minimax", …]-Regel in manufacturers.ts greift dann von
-  // selbst, sobald die ID das Lab nennt).
-  ["space-bunny", STEALTH_MANUFACTURER],
+  // Space Bunny — EX-Stealth: am 2026-10-19 als MiniMax M3.1 Flash enthüllt
+  // (Quelle: ocgo-Price-Tracker-Changelog 2026-10-19 — „Space Bunny“ removed,
+  // „MiniMax M3.1 Flash Free“ added; bestätigt von models.dev). Die frei
+  // gewordene ID ist minimax-m3.1-flash-free; die alten IDs behalten ihren
+  // Katalog-Anzeigenamen: opencode/space-bunny-free und
+  // opencode-go/space-bunny-free → „Space Bunny Free“, stealth/space-bunny-alpha
+  // (nano-gpt/kilo/openrouter) → „Space Bunny Alpha“ (bei kilo mit dem Zusatz
+  // „(new)“). Ein Pattern deckt beide Namensvarianten ab.
+  ["space-bunny", "MiniMax"],
 ];
 
 export default MANUAL_RULES;
@@ -162,6 +162,12 @@ export const MANUAL_FAMILY_RULES: ManualRule[] = [
   // bekommt) hier bewusst noch nicht gesplittet — erst wenn es welche gibt.
   ["kimi", "kimi"],
   ["minimax", "minimax"],
+  // Space Bunny (ex-Stealth = MiniMax M3.1 Flash) in denselben Family-Bucket
+  // wie die enthüllte ID minimax-m3.1-flash-free (Family „minimax“) — sonst
+  // fiele space-bunny-free via Katalog-Fallback auf null bzw. auf die
+  // Heuristik („space-bunny“). Muster steht hinter der minimax-Regel, keine
+  // frühere Regel trifft „space-bunny“.
+  ["space-bunny", "minimax"],
   // North Mini Code: der Katalog-Slug „north-free“ zieht die Tier-Endung in
   // die Family. Der Katalog sagt selbst überall „north“ (Cohere/north-mini-
   // code-1-0, …); kein anderes Modell enthält „north“ → breites Muster

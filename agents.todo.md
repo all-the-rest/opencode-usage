@@ -29,6 +29,29 @@
 
 ## Verifikations-Log
 
+### Runde 11 — Stealth-Rotation Space Bunny → MiniMax M3.1 Flash (2026-10-19, Orchestrator)
+„Space Bunny“ ist am 2026-10-19 als MiniMax M3.1 Flash enthüllt (ocgo-Tracker-Changelog
+2026-10-19: `model_removed` „Space Bunny“ + `model_added` „MiniMax M3.1 Flash Free“;
+`free_removed` `space-bunny-free` + `free_added` `minimax-m3.1-flash-free`; models.dev
+live: space-bunny-IDs ohne family, `minimax-m3.1-flash-free` mit family `minimax`).
+Analog zum Ox-Alpha-Fall (Runde 8) von Build-Subagent umgesetzt, von unabhängigem
+Verify-Subagent als **PASS (APPROVED)** bestätigt → Todo entfernt:
+- `src/lib/manual-manufacturers.ts`: `space-bunny` von STEALTH_MANUFACTURER auf
+  „MiniMax“ umgestellt; neue Family-Regel `space-bunny` → `minimax“ (derselbe Bucket
+  wie die enthüllte ID `minimax-m3.1-flash-free`; keine frühere Regel matcht
+  `space-bunny`); Header-Docstring + Regelkommentar auf den Enthüllungsstand
+  2026-10-19 gebracht. Anzeigename unverändert („Space Bunny Free“) — kein
+  UI-/i18n-Eingriff; Roh-IDs in stats.db und QuelldB bleiben erhalten (Quelle
+  read-only, Attribution zur Abfragezeit, kein Re-Sync nötig).
+- Betrifft 38.857 Msgs (opencode-go 36.363 + opencode 2.494, 25.09.–13.10., je $0);
+  Hersteller „MiniMax“ umfasst damit 39.307 Msgs (inkl. 450 `minimax-m3`).
+- Verifikation: tsc clean, build grün, 18/18 Laufzeit-Assertions, End-to-End gegen
+  :3712 (`/api/stats/models` → family `minimax`; `/api/stats/timeseries?groupBy=manufacturer`
+  → „MiniMax“ 39.307; `groupBy=family` → „minimax“ 39.307; „OpenCode Stealth“ nur noch
+  omen/union/big-pickle). Verify-Runde 1: APPROVED mit 1 LOW (Kommentar-Präzision:
+  Anzeigename „Space Bunny Alpha“ bei stealth/space-bunny-alpha) — vom Orchestrator
+  im selben Commit korrigiert (nur Kommentar, kein Verhaltenswechsel).
+
 ### Runde 10 — Prozent-Tooltips/Legenden + __click-Legenden-Fix (2026-09-13, Orchestrator)
 Free-Analyse + Build (ses_f63ca7741ffei5ag5ZLdfGqQud) + Erweiterung M2, unabhängig verifiziert (ses_f63c89dc1ffeoRo06Z91f5S0mc) als **PASS** → Todos entfernt:
 - **PCT-1 (Models M1 Donuts):** Tooltip `absolut (xx,x%)` via formatRatio(value/sum), Legende Math.round → formatRatio.
