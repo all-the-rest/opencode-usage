@@ -17,7 +17,8 @@
       "value": 1
     },
     "unverified-commits": {
-      "value": 73
+      "value": 75,
+      "reason": "pre-existing drift: 75 commits in the PR history have no Verify: footer; the baseline-raise commit itself adds one unverified commit, and the count predates the v0.8.0 migration. Reducing requires a forbidden history rewrite."
     }
   }
 }
